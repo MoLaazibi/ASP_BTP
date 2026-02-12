@@ -1,0 +1,352 @@
+@page "/AddTreeType"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Navigation
+@using AP.BTP.Application.CQRS.TreeTypes
+@using System.Text.Json
+@using System.Net.Http.Headers
+@attribute [Authorize(Roles = "Admin")]
+
+<div class="container-fluid">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <div class="fw-semibold">Nieuwe Boomsoort</div>
+            <small class="text-muted">Voeg een nieuwe boomsoort toe</small>
+        </div>
+        <button type="button" class="btn btp-primary" @onclick="CreateTreeType" disabled="@isLoading">
+            @(isLoading ? "Bezig met opslaan..." : "Toevoegen")
+        </button>
+    </div>
+
+    <div class="card shadow-sm border-0 rounded-4 slidein-animation">
+        <div class="card-body p-4">
+
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">Naam</label>
+                    <input class="form-control form-control-lg" style="font-size:0.95rem;" @bind="name" placeholder="bijv. Esdoorn" />
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label fw-semibold">Beschrijving (optioneel)</label>
+                    <textarea class="form-control" rows="4" @bind="description" placeholder="Korte toelichting..."></textarea>
+                </div>
+
+                <div class="col-md-6">
+                    <label class="form-label fw-semibold">Afbeeldingen</label>
+                    <div class="bg-light p-3 rounded-3 border border-dashed text-center">
+                        <InputFile @key="imageInputKey" OnChange="HandleFileSelection" multiple accept="image/png,image/jpeg" />
+                        <small class="text-muted d-block mt-2">
+                            Meerdere toegestaan • JPG of PNG • Max 20MB / foto
+                        </small>
+                    </div>
+                    @if (!isValidFileType)
+                    {
+                        <div class="text-danger small mt-2">Alleen .jpg of .png toegestaan.</div>
+                    }
+                    @if (fileTooBig)
+                    {
+                        <div class="text-danger small mt-1">Bestand is te groot (max 20MB).</div>
+                    }
+                </div>
+
+                @if (imagePreviewBase64.Any())
+                {
+                    <div class="col-12">
+                        <div class="d-flex flex-wrap gap-3">
+                            @for (int i = 0; i < imagePreviewBase64.Count; i++)
+                            {
+                                var url = imagePreviewBase64[i];
+                                <div class="position-relative">
+                                    <img class="rounded-3 shadow-sm"
+                                         src="@url"
+                                         style="width:180px; height:120px; object-fit:cover;" />
+                                    <button type="button" class="btn btn-sm btn-dark position-absolute top-0 end-0 m-1"
+                                            @onclick="() => RemoveImage(i)">
+                                        ✕
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            <hr class="my-4" />
+
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th style="width: 220px;">Seizoen</th>
+                            <th>PDF</th>
+                            <th style="width: 160px;"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < rows.Count; i++)
+                        {
+                            var r = rows[i];
+                            var idx = i;
+                            <tr>
+                                <td>
+                                    <span class="fw-semibold">@r.Season</span>
+                                </td>
+                                <td>
+                                    <div class="bg-light p-2 rounded-3 border border-dashed">
+                                        <InputFile @key="r.InputKey" OnChange="(e) => OnRowFileSelected(idx, e)" accept="application/pdf" />
+                                    </div>
+                                    @if (!string.IsNullOrEmpty(r.Error))
+                                    {
+                                        <div class="text-danger small mt-1">@r.Error</div>
+                                    }
+                                    @if (r.UploadFile != null)
+                                    {
+                                        <div class="text-success small mt-1">Geselecteerd: @r.UploadFile.Name</div>
+                                    }
+                                </td>
+                                <td>
+                                    <button class="btn btn-sm btn-outline-secondary" @onclick="(() => ClearRow(idx))">Wissen</button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            <small class="text-muted">Upload een PDF per seizoen dat je wilt gebruiken; leeg laten betekent overslaan.</small>
+
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <div class="alert @((isSuccess ? "alert-success" : "alert-danger")) mt-4">@message</div>
+            }
+
+        </div>
+    </div>
+</div>
+
+@code {
+    private string name = string.Empty;
+    private string description = string.Empty;
+    private bool isLoading = false;
+    private string message = "";
+    private bool isSuccess = false;
+
+    private List<UploadFile> imageFiles = new();
+    private List<string> imagePreviewBase64 = new();
+    private Guid imageInputKey = Guid.NewGuid();
+    private bool isValidFileType = true;
+    private bool fileTooBig = false;
+    private const long MaxFileSize = 20 * 1024 * 1024; 
+
+    private List<Row> rows = new()
+    {
+        new Row("Lente"),
+        new Row("Zomer"),
+        new Row("Herfst"),
+        new Row("Winter")
+    };
+    private const long MaxPdfSize = 50 * 1024 * 1024; 
+
+    private async Task HandleFileSelection(InputFileChangeEventArgs e)
+    {
+        isValidFileType = true;
+        fileTooBig = false;
+
+        var previews = new List<string>();
+        var uploads = new List<UploadFile>();
+
+        foreach (var file in e.GetMultipleFiles())
+        {
+            if (!(file.ContentType == "image/png" || file.ContentType == "image/jpeg"))
+            {
+                isValidFileType = false;
+                continue;
+            }
+            if (file.Size > MaxFileSize)
+            {
+                fileTooBig = true;
+                continue;
+            }
+
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(MaxFileSize).CopyToAsync(ms);
+            var data = ms.ToArray();
+
+            // generate preview
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            previews.Add($"data:{file.ContentType};base64,{base64}");
+
+
+            // store a lightweight descriptor with a stream factory (do not store IBrowserFile directly)
+            uploads.Add(new UploadFile
+            {
+                Name = file.Name,
+                ContentType = file.ContentType,
+                Size = file.Size,
+                OpenReadStream = () => new MemoryStream(data)
+            });
+        }
+
+        imagePreviewBase64.AddRange(previews);
+        imageFiles.AddRange(uploads);
+
+        await Task.Yield();
+        imageInputKey = Guid.NewGuid();
+    }
+
+    private async void RemoveImage(int index)
+    {
+        imagePreviewBase64.RemoveAt(index);
+        imageFiles.RemoveAt(index);
+        
+        await Task.Yield();
+        imageInputKey = Guid.NewGuid();
+    }
+
+
+    private async Task CreateTreeType()
+    {   
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            message = "Naam is verplicht";
+            return;
+        }
+
+        if (name.Length > 50)
+        {
+            message = "Naam mag maximaal 50 tekens bevatten";
+            return;
+        }
+
+        // Geen seizoen-keuze meer: alleen rijen met geüploade PDF's worden gebruikt
+
+        isLoading = true;
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            using var content = new MultipartFormDataContent();
+
+            // Add basic info
+            content.Add(new StringContent(name), "Name");
+            if (!string.IsNullOrWhiteSpace(description))
+                content.Add(new StringContent(description), "Description");
+
+            // Add images
+            foreach (var file in imageFiles)
+            {
+                var stream = file.OpenReadStream();
+                var streamContent = new StreamContent(stream);
+                streamContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
+                content.Add(streamContent, "Images", file.Name);
+            }
+
+            var instructionRows = rows
+                .Where(r => r.UploadFile != null)
+                .ToList();
+
+            for (int i = 0; i < instructionRows.Count; i++)
+            {
+                var r = instructionRows[i];
+
+                // Add season
+                content.Add(new StringContent(r.Season), $"Instructions[{i}].Season");
+
+                // Add PDF file
+                var stream = r.UploadFile.OpenReadStream();
+                var streamContent = new StreamContent(stream);
+                streamContent.Headers.ContentType = new MediaTypeHeaderValue(r.UploadFile.ContentType);
+
+                content.Add(streamContent, $"Instructions[{i}].Pdf", r.UploadFile.Name);
+            }
+
+
+            var response = await client.PostAsync("api/v1/TreeType", content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                message = $"Fout bij opslaan: {error}";
+                return;
+            }
+
+            isSuccess = true;
+            message = "Boomsoort succesvol toegevoegd!";
+            Navigation.NavigateTo("/ManageTreeTypes");
+        }
+        catch (Exception ex)
+        {
+            message = $"Fout: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task OnRowFileSelected(int index, InputFileChangeEventArgs e)
+    {
+        var r = rows[index];
+        r.Error = string.Empty;
+        var file = e.File;
+
+        if (file == null) return;
+
+        if (file.ContentType != "application/pdf")
+        {
+            r.Error = "Alleen PDF is toegestaan.";
+            r.UploadFile = null;
+            return;
+        }
+        if (file.Size > MaxPdfSize)
+        {
+            r.Error = "Bestand is te groot (max 50MB).";
+            r.UploadFile = null;
+            return;
+        }
+
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(MaxPdfSize).CopyToAsync(ms);
+        var data = ms.ToArray();
+
+        // store lightweight descriptor with stream factory
+        r.UploadFile = new UploadFile
+        {
+            Name = file.Name,
+            ContentType = file.ContentType,
+            Size = file.Size,
+            OpenReadStream = () => new MemoryStream(data)
+        };
+    }
+
+    private async void ClearRow(int index)
+    {
+        var r = rows[index];
+        // Clear values and force re-render of InputFile
+        r.UploadFile = null;
+        r.Error = string.Empty;
+        
+        await Task.Yield(); 
+        r.InputKey = Guid.NewGuid();
+        rows[index] = r;
+    }
+
+    public class UploadFile
+    {
+        public string Name { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public Func<Stream> OpenReadStream { get; set; } = null!;
+    }
+
+    public class Row
+    {
+        public Row(string season)
+        {
+            Season = season;
+        }
+        public string Season { get; set; } = string.Empty;
+        public UploadFile? UploadFile { get; set; }
+        public string Error { get; set; } = string.Empty;
+        public Guid InputKey { get; set; } = Guid.NewGuid();
+    }
+}

@@ -1,0 +1,265 @@
+@page "/EditUser/{Email}"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager NavigationManager
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@attribute [Authorize(Roles = "Admin")]
+
+@using AP.BTP.Application.CQRS.Users
+@using AP.BTP.Application.CQRS.NurserySites
+@using AP.BTP.Domain
+@using System.Net.Http.Json
+
+<h3>Gebruiker Bewerken</h3>
+
+@if (user == null)
+{
+    <div class="p-4 text-center text-muted">
+        <div class="spinner-border spinner-border-sm me-2"></div>
+        Gebruiker laden...
+    </div>
+}
+else
+{
+    <div class="slidein-animation">
+    <EditForm Model="user" OnValidSubmit="SaveUser">
+        <DataAnnotationsValidator />
+        <ValidationSummary />
+
+        <div class="mb-3">
+            <label class="form-label">Email</label>
+            <InputText class="form-control" @bind-Value="user.Email" readonly />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Auth Id</label>
+            <InputText class="form-control" @bind-Value="user.AuthId" readonly />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Voornaam</label>
+            <InputText class="form-control" @bind-Value="user.FirstName" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Achternaam</label>
+            <InputText class="form-control" @bind-Value="user.LastName" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Rollen</label>
+            <div class="d-flex flex-column">
+                @foreach (var role in new[] { Role.Admin, Role.Verantwoordelijke, Role.Medewerker })
+                {
+                    bool isChecked = user.Roles.Contains(role);
+
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="@role"
+                               checked="@isChecked"
+                               @onchange="() => ToggleRole(role)" />
+                        <label class="form-check-label" for="@role">@role</label>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Kweeksite voorkeur (optioneel)</label>
+            <div class="d-flex align-items-center gap-2">
+                @if (user?.PreferredNurserySiteId is int sid && (sites != null && sites.Any()))
+                {
+                    var selected = sites.FirstOrDefault(s => s.Id == sid);
+                    <button type="button" class="btn btp-primary" @onclick="ShowNurserySiteModal">@selected?.Name</button>
+                    }
+                    else
+                    {
+                        <button type="button" class="btn btp-primary" @onclick="ShowNurserySiteModal">Kweeksite kiezen...</button>
+                    }
+            </div>
+        </div>
+
+
+        <button type="submit" class="btn btp-primary">Opslaan</button>
+        <button type="button" class="btn btn-secondary ms-2" @onclick="GoBack">Annuleren</button>
+    </EditForm>
+    </div>
+}
+
+
+@code {
+    [Parameter]
+    public string Email { get; set; } = string.Empty;
+
+    private UserDTO? user;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserByEmail();
+        await LoadNurserySites();
+    }
+
+    private async Task LoadUserByEmail()
+    {
+        var client = ClientFactory.CreateClient("API");
+
+        try
+        {
+            var u = await client.GetFromJsonAsync<UserDTO>(
+                $"api/v1/User/byemail?email={Uri.EscapeDataString(Email)}");
+
+            user = u ?? new UserDTO { Roles = new List<Role>() };
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden gebruiker: {ex.Message}");
+        }
+    }
+
+    private void ToggleRole(Role role)
+    {
+        if (user == null) return;
+
+        if (user.Roles.Contains(role))
+            user.Roles.Remove(role);
+        else
+            user.Roles.Add(role);
+    }
+
+    private void GoBack()
+    {
+        NavigationManager.NavigateTo("/UserList");
+    }
+    private string userName = string.Empty;
+
+    private Popup nurserySiteModal;
+    private IEnumerable<NurserySiteDTO>? sites;
+    private IEnumerable<NurserySiteDTO>? filteredSites;
+    private string siteSearchTerm = string.Empty;
+
+    private string SiteSearchTerm
+    {
+        get => siteSearchTerm;
+        set { siteSearchTerm = value; FilterSites(); }
+    }
+
+    private async Task LoadNurserySites()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            sites = await client.GetFromJsonAsync<IEnumerable<NurserySiteDTO>>("api/v1/nurserysite?pageNr=1&pageSize=50&isArchived=false");
+            filteredSites = sites;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden nursery sites: {ex.Message}");
+            sites = Enumerable.Empty<NurserySiteDTO>();
+            filteredSites = sites;
+        }
+    }
+
+    private void FilterSites()
+    {
+        filteredSites = string.IsNullOrWhiteSpace(siteSearchTerm)
+            ? sites
+            : sites?.Where(s => s.Name.Contains(siteSearchTerm, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private async Task ShowNurserySiteModal()
+    {
+        await LoadNurserySites();
+        await nurserySiteModal.ShowAsync();
+    }
+
+    private async Task SetPreferredSiteFromList(NurserySiteDTO selected)
+    {
+        if (user == null) return;
+        user.PreferredNurserySiteId = selected?.Id;
+        await nurserySiteModal.HideAsync();
+    }
+
+
+    private async Task SaveUser()
+    {
+
+        if (user == null) return;
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+
+
+        var userr = authState.User;
+
+        userName = userr.Identity?.Name ?? "Onbekend";
+        if (userName == user.Email)
+        {
+            NavigationManager.NavigateTo("/UserList");
+            return;
+        }
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+
+            var updateCommand = new UpdateUserCommand
+                {
+                    User = user
+                };
+
+            var response = await client.PutAsJsonAsync(
+                $"api/v1/User/byemail?email={Uri.EscapeDataString(user.Email)}",
+                updateCommand
+            );
+
+            if (response.IsSuccessStatusCode)
+            {
+                // Optioneel: terug naar lijst
+                NavigationManager.NavigateTo("/UserList");
+            }
+            else
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"Fout bij opslaan: {error}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij opslaan: {ex.Message}");
+        }
+    }
+
+}
+
+<Popup @ref="nurserySiteModal"
+       Title="Kweeksite voorkeur selecteren"
+       IsVerticallyCentered="true"
+       BodyText="Nursery sites"
+       Size="ModalSize.Regular"
+       IsScrollable="true">
+    <BodyTemplate>
+        <div>
+            <input class="form-control mb-3"
+                   placeholder="Zoek site..."
+                   @bind="SiteSearchTerm"
+                   @bind:event="oninput" />
+            <ul class="list-group">
+                @if (filteredSites is not null && filteredSites.Any())
+                {
+                    @foreach (var s in filteredSites)
+                    {
+                        <li class="list-group-item list-group-item-action"
+                            @onclick="() => SetPreferredSiteFromList(s)">
+                            @s.Name
+                        </li>
+                    }
+                    <li class="list-group-item list-group-item-action"
+                        @onclick="() => SetPreferredSiteFromList(null)">
+                        -- geen voorkeur --
+                    </li>
+                }
+                else
+                {
+                    <li class="list-group-item text-muted">Geen sites gevonden.</li>
+                }
+            </ul>
+        </div>
+    </BodyTemplate>
+</Popup>

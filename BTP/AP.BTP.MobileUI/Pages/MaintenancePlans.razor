@@ -1,0 +1,295 @@
+@page "/maintenance-plans"
+@attribute [Authorize(Roles = "Admin,Medewerker")]
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Nav
+@using AP.BTP.Application.CQRS.TreeTypes
+@using AP.BTP.Application.CQRS.Instructions
+
+<div class="mp-shell">
+    <div class="mp-frame shadow-sm">
+        <div class="mp-inner">
+
+            <div class="mp-header">
+                <div class="mp-title">Onderhoudsplannen</div>
+                <div class="mp-subtitle">Bekijk en download onderhoudsplannen per boomsoort</div>
+            </div>
+
+            @if (isLoading)
+            {
+                <div class="mp-loading">
+                    <div class="spinner-border text-success" role="status"></div>
+                </div>
+            }
+            else if (!string.IsNullOrWhiteSpace(error))
+            {
+                <div class="mp-error">@error</div>
+            }
+            else
+            {
+                <div class="mp-content">
+
+                    @if (treeTypes.Count == 0)
+                    {
+                        <div class="mp-empty">
+                            <i class="bi bi-tree fs-1 mb-2"></i>
+                            Geen boomsoorten gevonden
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mp-list">
+                            @foreach (var tree in treeTypes)
+                            {
+                                <button class="mp-card"
+                                        @onclick="() => OpenConfirm(tree)"
+                                        aria-label="Open onderhoudsplan voor @tree.Name">
+
+                                    <div class="mp-card-thumb">
+                                        <i class="bi bi-file-earmark-pdf"></i>
+                                    </div>
+
+                                    <div class="mp-card-content">
+                                        <div class="mp-card-title">@tree.Name</div>
+                                        @if (!string.IsNullOrWhiteSpace(tree.Description))
+                                        {
+                                            <div class="mp-card-desc">@tree.Description</div>
+                                        }
+                                    </div>
+
+                                    <div class="mp-card-chevron">
+                                        <i class="bi bi-chevron-right"></i>
+                                    </div>
+
+                                </button>
+                            }
+                        </div>
+                    }
+
+                    @if (totalPages > 1)
+                    {
+                        <div class="mp-pagination">
+                            <nav aria-label="Pagina navigatie">
+                                <ul class="pagination mb-0">
+                                    <li class="page-item @(pageNr == 1 ? "disabled" : "")">
+                                        <button class="page-link px-4 py-2" @onclick="PreviousPage">
+                                            <i class="bi bi-chevron-left"></i> Vorige
+                                        </button>
+                                    </li>
+
+                                    <li class="page-item active">
+                                        <span class="page-link px-4 py-2">@pageNr</span>
+                                    </li>
+
+                                    <li class="page-item @(pageNr >= totalPages ? "disabled" : "")">
+                                        <button class="page-link px-4 py-2" @onclick="NextPage">
+                                            Volgende <i class="bi bi-chevron-right"></i>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </nav>
+                        </div>
+                    }
+
+                </div>
+            }
+
+            <div class="mp-footer">
+                BTP - Boomkwekerij Taak Planner<br />
+                Onderhoudsplannen voor medewerkers
+            </div>
+
+        </div>
+    </div>
+</div>
+
+
+@if (isConfirmVisible && selectedTree != null)
+{
+    <div class="mp-modal-backdrop @modalAnim" @onclick="CloseConfirm">
+        <div class="mp-modal-sheet" @onclick:stopPropagation="true">
+            <div class="mp-modal-header">
+                <div class="mp-modal-title">@selectedTree.Name</div>
+                <button class="mp-modal-close" @onclick="CloseConfirm">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+
+            <div class="mp-modal-body">
+
+                @if (confirmLoading)
+                {
+                    <div class="mp-loading py-3">
+                        <div class="spinner-border text-success"></div>
+                    </div>
+                }
+                else if (!string.IsNullOrWhiteSpace(confirmError))
+                {
+                    <div class="mp-error">@confirmError</div>
+                }
+                else
+                {
+                    <div class="mp-season-grid">
+                        <button class="mp-season-btn"
+                                disabled="@(!availableSeasons.ContainsKey("Lente"))"
+                                @onclick="@(() => DownloadSeason("Lente"))">
+                            Lente
+                        </button>
+
+                        <button class="mp-season-btn"
+                                disabled="@(!availableSeasons.ContainsKey("Zomer"))"
+                                @onclick="@(() => DownloadSeason("Zomer"))">
+                            Zomer
+                        </button>
+
+                        <button class="mp-season-btn"
+                                disabled="@(!availableSeasons.ContainsKey("Herfst"))"
+                                @onclick="@(() => DownloadSeason("Herfst"))">
+                            Herfst
+                        </button>
+
+                        <button class="mp-season-btn"
+                                disabled="@(!availableSeasons.ContainsKey("Winter"))"
+                                @onclick="@(() => DownloadSeason("Winter"))">
+                            Winter
+                        </button>
+                    </div>
+
+                    <div class="mp-season-hint">
+                        Kies een seizoen om het onderhoudsplan (PDF) te downloaden.
+                    </div>
+                }
+
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<TreeTypeDTO> treeTypes = new();
+    private bool isLoading = true;
+    private string error = string.Empty;
+    private int pageNr = 1;
+    private int pageSize = 10;
+    private int totalTreeTypes;
+    private int totalPages => (int)Math.Ceiling((double)totalTreeTypes / pageSize);
+
+    private bool isConfirmVisible = false;
+    private TreeTypeDTO? selectedTree;
+    private bool confirmLoading = false;
+    private Dictionary<string, string> availableSeasons = new();
+    private string confirmError = string.Empty;
+    private string modalAnim = "fade-in";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTreeTypes();
+    }
+
+    private async Task LoadTreeTypes()
+    {
+        isLoading = true;
+        error = string.Empty;
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            totalTreeTypes = await client.GetFromJsonAsync<int>($"api/v1/TreeType/count?isArchived=false");
+            var data = await client.GetFromJsonAsync<IEnumerable<TreeTypeDTO>>($"api/v1/TreeType/by-archive?isArchived=false&pageNr={pageNr}&pageSize={pageSize}");
+            treeTypes = data?.ToList() ?? new();
+        }
+        catch (Exception ex)
+        {
+            error = $"Kon onderhoudsplannen niet laden: {ex.Message}";
+            treeTypes = new();
+            totalTreeTypes = 0;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (pageNr < totalPages)
+        {
+            pageNr++;
+            await LoadTreeTypes();
+        }
+    }
+
+    private async Task PreviousPage()
+    {
+        if (pageNr > 1)
+        {
+            pageNr--;
+            await LoadTreeTypes();
+        }
+    }
+
+    private async Task OpenConfirm(TreeTypeDTO tree)
+    {
+        selectedTree = tree;
+        isConfirmVisible = true;
+        confirmLoading = true;
+        modalAnim = "fade-in";
+        availableSeasons.Clear();
+        confirmError = string.Empty;
+
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            var response = await client.GetAsync($"api/v1/TreeType/{tree.Id}");
+            if (!response.IsSuccessStatusCode)
+            {
+                confirmError = "Kon boomsoort niet laden.";
+                return;
+            }
+
+            var dto = await response.Content.ReadFromJsonAsync<TreeTypeDTO>();
+            if (dto == null)
+            {
+                confirmError = "Kon boomsoort niet laden.";
+                return;
+            }
+
+            var list = dto.Instructions ?? new List<InstructionDTO>();
+            foreach (var i in list)
+            {
+                if (!string.IsNullOrWhiteSpace(i.Season) && !string.IsNullOrWhiteSpace(i.FileUrl))
+                {
+                    var key = i.Season.Trim();
+                    if (!availableSeasons.ContainsKey(key))
+                        availableSeasons[key] = i.FileUrl;
+                }
+            }
+            if (availableSeasons.Count == 0)
+                confirmError = "Geen onderhoudsplan beschikbaar.";
+        }
+        catch (Exception ex)
+        {
+            confirmError = $"Kon onderhoudsplan niet ophalen: {ex.Message}";
+        }
+        finally
+        {
+            confirmLoading = false;
+        }
+    }
+
+    private async Task CloseConfirm()
+    {
+        modalAnim = "fade-out";
+        StateHasChanged();
+        await Task.Delay(160);
+        isConfirmVisible = false;
+        selectedTree = null;
+        availableSeasons.Clear();
+        confirmError = string.Empty;
+    }
+
+    private void DownloadSeason(string season)
+    {
+        if (selectedTree == null) return;
+        if (!availableSeasons.TryGetValue(season, out var url)) return;
+        Nav.NavigateTo(url, true);
+    }
+}

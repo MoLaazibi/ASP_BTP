@@ -1,0 +1,132 @@
+.navbar-toggler {
+    appearance: none;
+    cursor: pointer;
+    width: 3.5rem;
+    height: 2.5rem;
+    color: white;
+    position: absolute;
+    top: 0.5rem;
+    right: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'%3e%3cpath stroke='rgba%28255, 255, 255, 0.55%29' stroke-linecap='round' stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/%3e%3c/svg%3e") no-repeat center/1.75rem rgba(255, 255, 255, 0.1);
+}
+
+.navbar-toggler:checked {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+.top-row {
+    height: 3.5rem;
+    background-color: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.navbar-brand {
+    font-size: 1.1rem;
+}
+
+.navbar-brand:hover,
+.navbar-brand:focus {
+    color: #111827;
+}
+
+.logo-icon {
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: #059669;
+    padding: 0.35rem;
+}
+
+.bi {
+    display: inline-block;
+    position: relative;
+    width: 1.25rem;
+    height: 1.25rem;
+    margin-right: 0.75rem;
+    top: -1px;
+    background-size: cover;
+}
+
+.nav-item {
+    font-size: 0.9rem;
+    padding-bottom: 0.5rem;
+}
+
+    .nav-item:first-of-type {
+        padding-top: 1rem;
+    }
+
+    .nav-item:last-of-type {
+        padding-bottom: 1rem;
+    }
+
+    .nav-item ::deep .nav-link {
+        color: #334155; /* slate */
+        background: none;
+        border: none;
+        border-radius: 8px;
+        height: 3rem;
+        display: flex;
+        align-items: center;
+        line-height: 3rem;
+        width: 100%;
+        padding-left: .75rem;
+        padding-right: .75rem;
+    }
+
+.nav-item ::deep a.active {
+    background-color: #059669;
+    color: #ffffff; 
+    font-weight: 600;
+}
+
+.nav-item ::deep .nav-link:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+}
+
+.nav-item ::deep .nav-link.active:hover {
+    background-color: #059669;
+    color: #ffffff;
+}
+
+.nav-section-title {
+    font-size: .75rem;
+    font-weight: 600;
+    color: #64748b; /* slate-500 */
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin: .5rem .75rem .25rem .75rem;
+}
+
+/* Sub items styling (indent) */
+.nav-sub ::deep .nav-link {
+    padding-left: 1.5rem;
+    font-size: 0.9rem;
+}
+
+.nav-scrollable {
+    display: none;
+}
+
+.navbar-toggler:checked ~ .nav-scrollable {
+    display: block;
+}
+
+@media (min-width: 641px) {
+    .navbar-toggler {
+        display: none;
+    }
+
+    .nav-scrollable {
+        /* Never collapse the sidebar for wide screens */
+        display: block;
+
+        /* Allow sidebar to scroll for tall menus */
+        height: calc(100vh - 3.5rem);
+        overflow-y: auto;
+    }
+}

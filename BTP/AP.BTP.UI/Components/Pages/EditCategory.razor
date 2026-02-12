@@ -1,0 +1,167 @@
+﻿@page "/EditCategory/{Id:int}"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Navigation
+@using AP.BTP.Application.CQRS.Categories
+@using System.Text.Json
+@using System.Net.Http.Headers
+@attribute [Authorize(Roles = "Admin")]
+
+<div class="container-fluid">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <div class="fw-semibold">Categorie bewerken</div>
+            <small class="text-muted">Pas een categorie aan</small>
+        </div>
+        <button type="button" class="btn btp-primary" @onclick="UpdateCategory" disabled="@isLoading">
+            @(isLoading ? "Bezig met opslaan..." : "Opslaan")
+        </button>
+    </div>
+
+    <div class="card shadow-sm border-0 rounded-4 slidein-animation">
+        <div class="card-body p-4">
+
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">Naam</label>
+                    <input class="form-control form-control-lg" style="font-size:0.95rem;" value="@name" @oninput="e => name = e.Value.ToString()"></input>
+                </div>
+            </div>
+
+            <div class="row g-4">
+                <div class="col-md-4">
+                    <label class="form-label fw-semibold">Kleur</label>
+                    <div class="d-flex align-items-center gap-2">
+                        <!-- Color picker -->
+                        <input type="color" class="form-control form-control-color" style="width: 50px; padding:0;" @bind="color"/>
+                        <!-- Hex code input -->
+                        <input class="form-control form-control-lg" style="font-size:0.95rem;" @bind="color"/>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="my-4" />
+
+            @if (!string.IsNullOrEmpty(message))
+            {
+                <div class="alert @((isSuccess ? "alert-success" : "alert-danger")) mt-4">@message</div>
+            }
+
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private string name = string.Empty;
+    private string color = string.Empty;
+    private bool isLoading = false;
+    private string message = "";
+    private bool isSuccess = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCategory();
+    }
+
+    private async Task LoadCategory()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+
+            var response = await client.GetAsync($"api/v1/Category/{Id}");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                message = "Kon categorie niet laden.";
+                return;
+            }
+
+            var json = await response.Content.ReadAsStringAsync();
+            var dto = JsonSerializer.Deserialize<CategoryDTO>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (dto is not null)
+            {
+                name = dto.Name;
+                color = dto.Color;
+            }
+        }
+        catch (Exception ex)
+        {
+            message = $"Fout bij laden: {ex.Message}";
+        }
+    }
+
+    private async Task UpdateCategory()
+    {
+        message = "";
+        isSuccess = false;
+
+        // validate name
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            message = "Naam is verplicht";
+            return;
+        }
+
+        if (name.Length > 50)
+        {
+            message = "Naam mag maximaal 50 tekens bevatten";
+            return;
+        }
+
+        // validate color
+        if (string.IsNullOrWhiteSpace(color))
+        {
+            message = "Kleur is verplicht.";
+            return;
+        }
+
+        if (!System.Text.RegularExpressions.Regex.IsMatch(color, "^#[0-9A-Fa-f]{6}$"))
+        {
+            message = "Kleur moet een geldige hex-waarde zijn in de vorm #xxxxxx.";
+            return;
+        }
+
+        isLoading = true;
+
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+
+            var command = new EditCategoryCommand
+            {
+                Id = Id,
+                Name = name,
+                Color = color
+            };
+
+            var json = JsonSerializer.Serialize(command);
+            var content = new StringContent(json, System.Text.Encoding.UTF8, "application/json");
+
+            var response = await client.PutAsync($"api/v1/Category/{Id}", content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                message = $"Fout bij opslaan: {error}";
+                return;
+            }
+
+            isSuccess = true;
+            message = "Categorie succesvol bijgewerkt!";
+            Navigation.NavigateTo("ManageCategory");
+        }
+        catch (Exception ex)
+        {
+            message = $"Fout: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+}

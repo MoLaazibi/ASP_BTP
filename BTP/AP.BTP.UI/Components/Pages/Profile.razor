@@ -1,0 +1,75 @@
+﻿@page "/profile"
+@using System.Security.Claims
+@inject IHttpClientFactory ClientFactory
+@rendermode InteractiveServer
+@using AP.BTP.Application.CQRS.Users
+
+
+<div class="container py-4">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+
+            @if (user == null)
+            {
+                <div class="d-flex justify-content-center py-5">
+                    <div class="spinner-border text-success" role="status"></div>
+                </div>
+            }
+            else
+            {
+                <div class="card shadow-sm border-0" style="border-radius: 14px;">
+                    <div class="card-body p-4">
+
+                        <h3 class="mb-4 text-center fw-bold">
+                            Mijn Profiel
+                        </h3>
+
+                        <div class="mb-3">
+                            <label class="fw-semibold text-muted small">Voornaam</label>
+                            <div class="fs-5">@(!string.IsNullOrWhiteSpace(user.FirstName) ? user.FirstName : "Niet ingesteld")</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="fw-semibold text-muted small">Achternaam</label>
+                            <div class="fs-5">@(!string.IsNullOrWhiteSpace(user.LastName) ? user.LastName : "Niet ingesteld")</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="fw-semibold text-muted small">E-mail</label>
+                            <div class="fs-5">@user.Email</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="fw-semibold text-muted small">Gebruikersnaam</label>
+                            <div class="fs-5">@user.Username</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="fw-semibold text-muted small">Rollen</label>
+                            <div>
+                                @foreach (var role in user.Roles)
+                                {
+                                    <span class="badge bg-success me-1"
+                                          style="font-size: 0.9rem; border-radius: 8px;">
+                                        @role
+                                    </span>
+                                }
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private UserDTO? user;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var client = ClientFactory.CreateClient("API");
+        user = await client.GetFromJsonAsync<UserDTO>("api/v1/User/me");
+    }
+}

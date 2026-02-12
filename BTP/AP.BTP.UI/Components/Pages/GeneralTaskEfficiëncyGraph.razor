@@ -1,0 +1,273 @@
+﻿@page "/Graph"
+@rendermode InteractiveServer
+
+@using AP.BTP.Application.CQRS.TaskLists
+@using AP.BTP.Application.CQRS.EmployeeTasks
+@using System.Globalization
+@inject IHttpClientFactory ClientFactory
+
+<div class="slidein-animation container mb-4">
+    <div class="d-flex align-items-center mb-2">
+        <h5 class="mb-0 me-2 fw-semibold">Filter periode</h5>
+        <span class="text-muted" style="font-size: 0.9rem;">(selecteer start- en einddatum)</span>
+    </div>
+
+    <div class="row g-3" style="max-width: 600px;">
+        <div class="col-6">
+            <label class="form-label fw-semibold">Startdatum</label>
+            <DateInput TValue="DateOnly"
+                       @bind-Value="@startDate"
+                       class="form-control form-control-sm" />
+        </div>
+
+        <div class="col-6">
+            <label class="form-label fw-semibold">Einddatum</label>
+            <DateInput TValue="DateOnly"
+                       @bind-Value="@endDate"
+                       class="form-control form-control-sm" />
+        </div>
+    </div>
+
+    <button class="btn btp-primary mt-3" @onclick="ApplyFilter">
+        Filter toepassen
+    </button>
+</div>
+
+@if (weeks != null && weeks.Any())
+{
+    @foreach (var week in weeks)
+    {
+        <div class="mb-4"  @key="week.WeekStart">
+            <LineChart @ref="week.ChartRef" Style="width:600px; height:200px;" />
+        </div>
+    }
+}
+else if (taskLists != null && !taskLists.Any())
+{
+    <p class="text-muted mt-3">Geen takenlijsten gevonden in deze periode.</p>
+}
+
+
+
+@code {
+    private DateOnly startDate = DateOnly.FromDateTime(DateTime.Now);
+    private DateOnly endDate = DateOnly.FromDateTime(DateTime.Now);
+
+    private IEnumerable<TaskListDTO>? taskLists;
+    private List<WeekEfficiency> weeks = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTaskLists();
+        await BuildWeeklyEfficiency();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        await base.OnAfterRenderAsync(firstRender);
+
+        if (weeks == null || weeks.Count == 0)
+            return;
+
+        // Init charts per week (1x per week)
+        foreach (var week in weeks)
+        {
+            if (week.ChartRef != null && !week.Initialized)
+            {
+                var data = BuildChartData(week);
+                var options = BuildChartOptions(week);
+
+                await week.ChartRef.InitializeAsync(data, options);
+                week.Initialized = true;
+            }
+        }
+    }
+
+    private async Task LoadTaskLists()
+    {
+        var client = ClientFactory.CreateClient("API");
+
+        try
+        {
+            var start = startDate.ToDateTime(TimeOnly.MinValue).ToString("yyyy-MM-ddTHH:mm:ss");
+            var end = endDate.ToDateTime(TimeOnly.MaxValue).ToString("yyyy-MM-ddTHH:mm:ss");
+
+            taskLists = await client.GetFromJsonAsync<IEnumerable<TaskListDTO>>(
+                $"api/v1/taskList/date?start={start}&end={end}"
+            ) ?? Enumerable.Empty<TaskListDTO>();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Takenlijsten konden niet opgehaald worden: {ex.Message}");
+            taskLists = Enumerable.Empty<TaskListDTO>();
+        }
+    }
+
+    private async Task BuildWeeklyEfficiency()
+    {
+        weeks = new List<WeekEfficiency>();
+
+        if (taskLists == null || !taskLists.Any())
+            return;
+
+        var client = ClientFactory.CreateClient("API");
+        var weekDict = new Dictionary<DateOnly, WeekEfficiency>();
+
+        foreach (var taskList in taskLists.OrderBy(tl => tl.Date))
+        {
+            var localDateTime = taskList.Date.ToLocalTime();
+            var date = DateOnly.FromDateTime(localDateTime);
+
+            if (date < startDate || date > endDate)
+                continue;
+
+            var weekStart = GetWeekStartMonday(date);
+            var dayIndex = GetDayIndexMondayFirst(date);
+
+            if (!weekDict.TryGetValue(weekStart, out var week))
+            {
+                week = new WeekEfficiency
+                {
+                    WeekStart = weekStart,
+                    Labels = new List<string> { "ma", "di", "wo", "do", "vr", "za", "zo" },
+                    Worked = Enumerable.Repeat<double?>(0, 7).ToList(),
+                    Planned = Enumerable.Repeat<double?>(0, 7).ToList()
+                };
+                weekDict.Add(weekStart, week);
+            }
+
+            double worked = 0;
+            double planned = 0;
+
+            try
+            {
+                var employeeTasks = await client.GetFromJsonAsync<IEnumerable<EmployeeTaskDTO>>(
+                    $"api/v1/employeeTask/taskList/{taskList.Id}"
+                );
+
+                if (employeeTasks != null)
+                {
+                    foreach (var task in employeeTasks)
+                    {
+                        if (task.StartTime.HasValue && task.StopTime.HasValue)
+                        {
+                            worked += (task.StopTime.Value - task.StartTime.Value).TotalHours;
+                        }
+
+                        planned += task.PlannedDuration;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Fout bij laden taken van takenlijst {taskList.Id}: {ex.Message}");
+            }
+
+            week.Worked[dayIndex] += worked;
+            week.Planned[dayIndex] += planned;
+        }
+
+        weeks = weekDict.Values.OrderBy(w => w.WeekStart).ToList();
+    }
+
+
+    private async Task ApplyFilter()
+    {
+        await LoadTaskLists();
+        await BuildWeeklyEfficiency();
+        foreach (var w in weeks)
+        {
+            w.ChartRef = null;
+            w.Initialized = false;
+        }
+        StateHasChanged();
+    }
+
+    private ChartData BuildChartData(WeekEfficiency week)
+    {
+        return new ChartData
+        {
+            Labels = week.Labels,
+            Datasets = new List<IChartDataset>
+            {
+                new LineChartDataset
+                {
+                    Label       = "Gewerkte uren",
+                    Data        = week.Worked,
+                    BackgroundColor = "rgb(54, 162, 235)",
+                    BorderColor = "rgb(54, 162, 235)",
+                    Fill        = false,
+                    Tension     = 0.3
+                },
+                new LineChartDataset
+                {
+                    Label       = "Geplande uren",
+                    Data        = week.Planned,
+                    BackgroundColor = "rgb(255, 159, 64)",
+                    BorderColor = "rgb(255, 159, 64)",
+                    Fill        = false,
+                    Tension     = 0.3
+                }
+            }
+        };
+    }
+
+    private LineChartOptions BuildChartOptions(WeekEfficiency week)
+    {
+        var options = new LineChartOptions
+        {
+            Responsive = true
+        };
+
+        options.Plugins.Title = new ChartPluginsTitle
+        {
+            Display = true,
+            Text = $"Week van {week.WeekStart:dd/MM/yyyy}"
+        };
+
+        options.Scales.Y = new ChartAxes
+        {
+            Title = new ChartAxesTitle
+            {
+                Display = true,
+                Text = "Uren"
+            },
+            Min = 0
+        };
+
+        options.Scales.X = new ChartAxes
+        {
+            Title = new ChartAxesTitle
+            {
+                Display = true,
+                Text = "Weekdag"
+            }
+        };
+
+        return options;
+    }
+
+    private static DateOnly GetWeekStartMonday(DateOnly date)
+    {
+        var dayOfWeek = (int)date.DayOfWeek;
+        var offset = dayOfWeek == 0 ? -6 : 1 - dayOfWeek;
+        return date.AddDays(offset);
+    }
+
+    private static int GetDayIndexMondayFirst(DateOnly date)
+    {
+        var dow = (int)date.DayOfWeek; // 0..6
+        return dow == 0 ? 6 : dow - 1;
+    }
+
+    private class WeekEfficiency
+    {
+        public DateOnly WeekStart { get; set; }
+        public List<string> Labels { get; set; } = new();
+        public List<double?> Worked { get; set; } = new();
+        public List<double?> Planned { get; set; } = new();
+
+        public LineChart? ChartRef { get; set; }
+        public bool Initialized { get; set; } = false;
+    }
+}

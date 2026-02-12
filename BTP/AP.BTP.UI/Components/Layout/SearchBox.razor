@@ -1,0 +1,30 @@
+﻿@typeparam TItem
+
+<div class="search-box">
+    <AutoComplete TItem="TItem"
+                  TValue="string"
+                  @bind-Value="Value"
+                  DataProvider="DataProvider"
+                  PropertyName="@PropertyName"
+                  Placeholder="@Placeholder"
+                  OnChanged="HandleChanged"
+                  Class="w-100" />
+</div>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string?> ValueChanged { get; set; }
+
+    [Parameter, EditorRequired]
+    public AutoCompleteDataProviderDelegate<TItem> DataProvider { get; set; } = default!;
+
+    [Parameter] public string PropertyName { get; set; } = "";
+    [Parameter] public string Placeholder { get; set; } = "Search...";
+    [Parameter] public EventCallback<TItem?> OnChanged { get; set; }
+
+    private async Task HandleChanged(TItem? item)
+    {
+        if (OnChanged.HasDelegate)
+            await OnChanged.InvokeAsync(item);
+    }
+}

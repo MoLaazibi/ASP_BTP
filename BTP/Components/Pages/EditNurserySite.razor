@@ -1,0 +1,11 @@
+@page "/editNurserySite/{SiteId:int}"
+@rendermode InteractiveServer
+@using AP.BTP.Application.CQRS.NurserySite
+@using AP.BTP.Application.CQRS.TreeType
+@using AP.BTP.Application.CQRS.Users
+@using AP.BTP.Application.CQRS
+@using AP.BTP.UI.Components.Layout
+@using System.Net.Http.Json
+@inject NavigationManager Navigation
+@inject IHttpClientFactory ClientFactory
+@attribute [Authorize(Roles = "Admin")]

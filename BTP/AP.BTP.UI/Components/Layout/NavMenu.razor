@@ -1,0 +1,70 @@
+﻿@inject NavigationManager NavigationManager
+@inject IHttpClientFactory HttpFactory
+
+<div class="nav-container">
+    <div class="top-row ps-3 navbar">
+        <div class="container-fluid d-flex align-items-center">
+            <a class="navbar-brand fw-semibold text-dark text-decoration-none" href="/">BTP Admin</a>
+        </div>
+    </div>
+
+    <input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+    <div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+        <nav class="flex-column">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="/" Match="NavLinkMatch.All">
+                    <span class="bi-house"></span> Dashboard
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <a class="nav-link @(IsActive("/ManageTaskList") || IsActive("/AddTaskList") ? "active" : "")" href="/ManageTaskList">
+                    <span class="bi-list-check"></span> Takenlijsten
+                </a>
+            </div>
+            <div class="nav-item px-3">
+                <a class="nav-link @(IsActive("/ManageNurserySite") || IsActive("/AddNurserySite") || IsActive("/EditNurserySite") ? "active" : "")" href="/ManageNurserySite">
+                    <span class="bi-geo-alt"></span> Kweeksites
+                </a>
+            </div>
+            <div class="nav-item px-3">
+                <a class="nav-link @(IsActive("/ManageTreeTypes") || IsActive("/AddTreeType") || IsActive("TreeType") ? "active" : "")" href="/ManageTreeTypes">
+                    <span class="bi-tree"></span> Boomsoorten
+                </a>
+            </div>
+            <div class="nav-item px-3">
+                <a class="nav-link @(IsActive("/UserList") || IsActive("/Edituser") ? "active" : "")" href="/UserList">
+                    <span class="bi-people"></span> Gebruikers
+                </a>
+            </div>
+            <div class="nav-item px-3">
+                <a class="nav-link @(IsActive("/UserTaskEfficiency") || IsActive("/Graph/") ? "active" : "")" href="/UserTaskEfficiency">
+                    <span class="bi-clipboard-data"></span> Gebruikers Efficiëntie
+                </a>
+            </div>
+            <AuthorizeView Roles="Admin">
+                <Authorized>
+                    <div class="nav-item px-3">
+                        <a class="nav-link @(IsActive("/ManageCategory") || IsActive("ManageCategory") ? "active" : "")" href="/ManageCategory">
+                            <span class="bi-tag"></span> Categorieën
+                        </a>
+                    </div>
+                </Authorized>
+            </AuthorizeView>
+        </nav>
+    </div>
+
+    <div class="nav-item px-3">
+        <a class="nav-link" href="/logout">
+            <span class="oi oi-account-logout" aria-hidden="true"></span> Log out
+        </a>
+    </div>
+</div>
+
+@code {
+    private bool IsActive(string path)
+    {
+        var uri = NavigationManager.Uri.ToLower();
+        return uri.Contains(path.ToLower());
+    }
+}

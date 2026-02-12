@@ -1,0 +1,100 @@
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  API_IMAGE: $CI_REGISTRY_IMAGE/btp-api
+  WEB_IMAGE: $CI_REGISTRY_IMAGE/btp-ui
+  MOBILE_IMAGE: $CI_REGISTRY_IMAGE/btp-mobile
+  TAG: $CI_COMMIT_SHORT_SHA # Using the short SHA for cleaner tags
+
+test:
+  stage: test
+  image: mcr.microsoft.com/dotnet/sdk:8.0 # Using the official .NET 8 SDK image
+  script:
+    # Test individual projects excluding the mobile app
+    - dotnet test BTP/AP.BTP.API/AP.BTP.API.csproj
+    - dotnet test BTP/AP.BTP.Application/AP.BTP.Application.csproj
+    - dotnet test BTP/AP.BTP.Domain/AP.BTP.Domain.csproj
+    - dotnet test BTP/AP.BTP.Infrastructure/AP.BTP.Infrastructure.csproj
+    - dotnet test BTP/AP.BTP.UI/AP.BTP.UI.csproj
+  rules:
+    # Run tests for all merge requests and commits to any branch
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+build:
+  stage: build
+  image: docker:latest
+  tags:
+    - docker
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+  script:
+    # 1. Build images and tag them with the unique commit SHA and latest
+    - docker build --pull -t $API_IMAGE:$TAG -t $API_IMAGE:latest -f BTP/AP.BTP.API/Dockerfile BTP
+    - docker build --pull -t $WEB_IMAGE:$TAG -t $WEB_IMAGE:latest -f BTP/AP.BTP.UI/Dockerfile BTP
+    - docker build --pull -t $MOBILE_IMAGE:$TAG -t $MOBILE_IMAGE:latest -f BTP/AP.BTP.MobileUI/Dockerfile BTP
+  
+    # 2. Push both tags
+    - docker push $API_IMAGE:$TAG
+    - docker push $API_IMAGE:latest
+    - docker push $WEB_IMAGE:$TAG
+    - docker push $WEB_IMAGE:latest
+    - docker push $MOBILE_IMAGE:$TAG
+    - docker push $MOBILE_IMAGE:latest
+  rules:
+    # Run this job for all merge requests and commits to any branch
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH'
+
+deploy:
+  stage: deploy
+  image: docker:latest
+  tags:
+    - docker
+  variables:
+    DOCKER_HOST: unix:///var/run/docker.sock
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker compose version
+  script:
+    # Prepare deployment directory
+    - mkdir -p /srv/asp-btp/traefik
+    - cp docker-compose.yml /srv/asp-btp/
+    - cp traefik/docker-compose.yml /srv/asp-btp/traefik/
+    - cp traefik/traefik.yml /srv/asp-btp/traefik/traefik.yml
+
+    # Clean up any problematic Traefik containers and ensure file is not a directory
+    - rm -rf /srv/asp-btp/traefik/traefik.yml
+    - cp traefik/traefik.yml /srv/asp-btp/traefik/traefik.yml
+    - docker rm -f traefik-traefik-proxy-1 2>/dev/null || true
+
+    # Start Traefik
+    - docker compose -f /srv/asp-btp/traefik/docker-compose.yml down
+    - docker network inspect traefik >/dev/null 2>&1 || docker network create traefik
+    - docker compose -f /srv/asp-btp/traefik/docker-compose.yml up -d
+
+    # Wait a moment for Traefik to initialize
+    - sleep 15
+
+    # Stop existing application containers and remove database volume
+    - cd /srv/asp-btp
+    - docker compose -f docker-compose.yml down --remove-orphans
+    - docker volume rm asp-btp_sqlserver-data || true  # Remove database volume (ignore if doesn't exist)
+    - docker volume rm sqlserver-data || true  # Alternative volume name (ignore if doesn't exist)
+
+    # Deploy application with fresh database
+    - cat "$DOT_ENV_FILE" > .env
+    - docker compose -f docker-compose.yml pull
+    - docker compose -f docker-compose.yml up -d --remove-orphans
+
+    # Wait for database to be ready and application to start
+    - sleep 30
+    - echo "Deployment completed successfully"
+  rules:
+    # Only run this deployment job on commits to the 'main' branch.
+    - if: '$CI_COMMIT_BRANCH == "main"'

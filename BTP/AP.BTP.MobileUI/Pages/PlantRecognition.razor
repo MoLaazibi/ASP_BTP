@@ -1,0 +1,245 @@
+@page "/recognition"
+@inject HttpClient Http
+@using System.Text.Json
+
+<div class="page-header">
+    <div class="page-title"><i class="bi bi-leaf text-success me-2"></i>Plant Herkenning</div>
+    <div class="page-actions">
+        <span class="chip">AI</span>
+    </div>
+</div>
+
+<div class="container mt-4">
+
+    <div class="card shadow-sm p-4 mb-4" style="border-radius:10px;">
+        <div class="text-center mb-3">
+            <i class="bi bi-camera text-success fs-1"></i>
+        </div>
+
+        <h5 class="fw-semibold text-center">Kies een foto van je device</h5>
+        <p class="text-center text-muted">Zorg voor duidelijke foto's van de organen voor beste resultaten</p>
+
+        <InputFile OnChange="HandleFileSelected" />
+
+        <div class="d-flex justify-content-center mt-3">
+            <button class="btn btn-success btn-lg" @onclick="UploadToPlantNet" disabled="@(!fileIsSelected)">
+                <i class="bi bi-upload"></i> Upload
+            </button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <p class="text-center text-muted">⏳ Foto wordt geanalyseerd...</p>
+    }
+
+    @if (showTips)
+    {
+        <div class="tips-box shadow-sm p-3 border border-primary" style="background-color:lightcyan; border-radius: 10px">
+            <h6 class="fw-bold mb-2 text-primary">Tips voor beste resultaten:</h6>
+            <ul class="text-dark">
+                <li>Upload de fotos één per één. Voor elke upload zal u een orgaan moeten selecteren</li>
+                <li>Upload een zo duidelijke mogelijk foto van de volgende organen: bladeren, bloem, fruit en stam</li>
+                <li>Minimum één foto uploaden en maximum vier</li>
+                <li>Enkel bestanden type .png en jpg worden aanvaard</li>
+            </ul>
+        </div>
+    }
+
+    @if (apiResult != null)
+    {
+        <div class="mt-4 p-3 shadow-sm" style="background-color:#F0FFF0; border: 1px solid #047857; border-radius:10px">
+            <h5 class="fw-bold">Resultaat:</h5>
+            <p><b>Soort:</b> @apiResult.species.scientificNameWithoutAuthor</p>
+            <p><b>Score:</b> @(apiResult.score.ToString("P2"))</p>
+
+            @if (apiResult.species.commonNames != null)
+            {
+                <p><b>Andere namen:</b> @string.Join(", ", apiResult.species.commonNames)</p>
+            }
+        </div>
+    }
+
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-warning text-center mt-3" role="alert" style="border-radius:10px;">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            @errorMessage
+        </div>
+    }
+
+</div>
+
+@if (isSelectingPicture)
+{
+    <div class="modal-backdrop @modalAnimation" @onclick="CloseModal">
+        <div class="modal-sheet" @onclick:stopPropagation="true">
+            <div class="modal-header">
+                <div class="modal-title">Orgaan selectie</div>
+            </div>
+            <div class="modal-body">
+                @foreach (var organ in organs)
+                {
+                    switch (organ)
+                    {
+                        case "leaf":
+                            <div class="list-group-item list-group-item-action" @onclick='() => SelectOrgan("leaf")'>
+                                <i class="bi bi-leaf">  Bladeren</i>
+                            </div>
+                            break;
+                        case "flower":
+                            <div class="list-group-item list-group-item-action" @onclick='() => SelectOrgan("flower")'>
+                                <i class="bi bi-flower3">  Bloem</i>
+                            </div>
+                            break;
+                        case "fruit":
+                            <div class="list-group-item list-group-item-action" @onclick='() => SelectOrgan("fruit")'>
+                                <i class="bi bi-apple">  Fruit</i>
+                            </div>
+                            break;
+                        case "bark":
+                            <div class="list-group-item list-group-item-action" @onclick='() => SelectOrgan("bark")'>
+                                <i class="bi bi-tree">  Stam</i>
+                            </div>
+                            break;
+                    }
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string[] organs = { "leaf", "flower", "fruit", "bark" };
+    private string? organ;
+    private List<string> selectedOrgans = new();
+    private string modalAnimation = "fade-in";
+    private List<(byte[] Image, string Organ)>? selectedImages = new();
+    private byte[]? tempImageBytes;
+    private bool fileIsSelected = false;
+    private bool isSelectingPicture = false;
+    private bool isLoading = false;
+    private IdentifyResult? apiResult;
+    private string errorMessage = "";
+
+    private bool showTips = true;
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+
+        using var stream = file.OpenReadStream(maxAllowedSize: 10_000_000);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+
+        tempImageBytes = ms.ToArray();
+
+        isSelectingPicture = true;
+        modalAnimation = "fade-in";
+    }
+    private async Task SelectOrgan(string organ)
+    {
+        if (tempImageBytes == null)
+            return;
+
+        selectedImages.Add((tempImageBytes, organ));
+
+        tempImageBytes = null;
+        fileIsSelected = selectedImages.Any();
+
+        await CloseModal();
+    }
+    private async Task UploadToPlantNet()
+    {
+        if (!selectedImages.Any())
+            return;
+
+        isLoading = true;
+        apiResult = null;
+        errorMessage = "";
+        showTips = false;
+
+        var apiKey = "2b103ghNIggljzM3gM8iyRpa0e";
+        var url = $"https://my-api.plantnet.org/v2/identify/all?api-key={apiKey}";
+        var content = new MultipartFormDataContent();
+
+        int index = 0;
+        foreach (var item in selectedImages)
+        {
+            var byteContent = new ByteArrayContent(item.Image);
+            byteContent.Headers.ContentType =
+                new System.Net.Http.Headers.MediaTypeHeaderValue("image/jpeg");
+            content.Add(byteContent, "images", $"photo{index}.jpg");
+            content.Add(new StringContent(item.Organ), "organs");
+
+            index++;
+        }
+
+        var response = await Http.PostAsync(url, content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var jsonError = await response.Content.ReadAsStringAsync();
+            var err = System.Text.Json.JsonSerializer.Deserialize<PlantNetError>(jsonError);
+            Validate(err?.message);
+        }
+
+        var json = await response.Content.ReadAsStringAsync();
+        var root = JsonSerializer.Deserialize<PlantNetResponse>(
+            json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+        );
+
+        apiResult = root?.results?.FirstOrDefault();
+        selectedImages.Clear();
+        selectedOrgans.Clear();
+        isLoading = false;
+    }
+
+
+    private void Validate(string? message)
+    {
+        if (message == "Unsupported file type for image[0] (jpeg or png)")
+        {
+            errorMessage = "Ongeldige bestand type";
+        }
+        if (message == "Species not found")
+        {
+            errorMessage = "Boomtype niet gevonden";
+        }
+    }
+
+    private async Task CloseModal()
+    {
+        modalAnimation = "fade-out";
+        StateHasChanged();
+        await Task.Delay(160);
+        isSelectingPicture = false;
+        StateHasChanged();
+    }
+
+    public class PlantNetResponse
+    {
+        public List<IdentifyResult>? results { get; set; }
+    }
+
+    public class IdentifyResult
+    {
+        public double score { get; set; }
+        public Species species { get; set; }
+    }
+
+    public class Species
+    {
+        public string scientificNameWithoutAuthor { get; set; }
+        public List<string>? commonNames { get; set; }
+    }
+
+    public class PlantNetError
+    {
+        public int statusCode { get; set; }
+        public string error { get; set; }
+        public string message { get; set; }
+    }
+
+}

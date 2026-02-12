@@ -1,0 +1,32 @@
+﻿@page "/login-error"
+@rendermode InteractiveServer
+@inject NavigationManager Navigation
+
+<div class="login-page">
+    <div class="brand">
+        <img src="/Images/btp logo.png" alt="BTP" class="brand-logo" />
+        <div class="brand-title">BTP</div>
+        <div class="brand-sub">Boomkwekerij Taak Planner</div>
+    </div>
+
+    <div class="login-card">
+        <div class="card-title">Je hebt (nog) geen rechten om in te loggen.</div>
+
+        <p class="info-text" style="text-align:center; margin-bottom: 20px;">
+            Eenmaal een administrator je toestemming geeft kan je inloggen op het platform.
+        </p>
+
+        <button class="btn btn-danger w-100" @onclick="GoToLogin">
+            Terug naar login
+        </button>
+    </div>
+
+    <div class="login-foot">Interne tool voor boomkwekerij takenbeheer</div>
+</div>
+
+@code {
+    private void GoToLogin()
+    {
+        Navigation.NavigateTo("/logout", forceLoad: true);
+    }
+}

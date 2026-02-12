@@ -1,0 +1,141 @@
+﻿@page "/UserTaskEfficiency"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager NavigationManager
+@using System.Globalization
+@using AP.BTP.Application.CQRS.Users
+@using AP.BTP.Application.CQRS.TaskLists
+
+
+
+<div class="container-fluid">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <div class="fw-semibold">Bekijk de efficientie</div>
+            <small class="text-muted">Bekijk de efficientie van de medewerkers</small>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btp-primary" @onclick='() => NavigationManager.NavigateTo("Graph")'>
+                Algemene Efficientie
+            </button>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 slidein-animation">
+        <div class="card-body p-0">
+            @if (users == null)
+            {
+                <div class="p-4 text-center text-muted">
+                    <div class="spinner-border spinner-border-sm me-2"></div>
+                    Gebruikers laden...
+                </div>
+            }
+            else if (!users.Any())
+            {
+                <div class="p-4 text-center text-muted">
+                    <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                    Geen gebruikers gevonden.
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead class="table-light border-bottom border-1">
+                            <tr>
+                                <th>Gebruikersnaam</th>
+                                <th>Email</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in users)
+                            {
+                                <tr class="border-bottom">
+                                    <td class="ps-3 text-muted">@user.Username</td>
+                                    <td class="fw-semibold">@user.Email</td>
+                                    <td class="text-end pe-3">
+                                        <button type="button" class="btn btp-primary" @onclick='() => NavigationManager.NavigateTo($"/Graph/{user.Id}")'>Toon efficiëntie</button>
+                                        
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                </div>
+
+                <div class="d-flex justify-content-end align-items-center p-3 border-top bg-light">
+                    <button class="btn btn-outline-secondary me-2" @onclick="PreviousPage" disabled="@(pageNr == 1)">
+                        <i class="bi bi-chevron-left"></i> Vorige
+                    </button>
+                    <span class="mx-2 text-muted small">Pagina @pageNr</span>
+                    <button class="btn btn-outline-secondary" @onclick="NextPage" disabled="@(users.Count() < pageSize)">
+                        Volgende <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+                
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private IEnumerable<UserDTO>? users;
+    private IEnumerable<TaskListDTO>? taskLists;
+    private int pageNr = 1;
+    private int pageSize = 10;
+    private string? searchEmail;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+    }
+
+    private async Task LoadUsers()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            users = await client.GetFromJsonAsync<IEnumerable<UserDTO>>($"api/v1/user/byrole?role=Medewerker&pageNr={pageNr}&pageSize={pageSize}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden gebruikers: {ex.Message}");
+            users = Enumerable.Empty<UserDTO>();
+        }
+    }
+
+    private async Task LoadTaskLists(int userId)
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            taskLists = await client.GetFromJsonAsync<IEnumerable<TaskListDTO>>($"api/v1/taskList/user/{userId}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden gebruikers: {ex.Message}");
+            taskLists = Enumerable.Empty<TaskListDTO>();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (users != null && users.Count() == pageSize)
+        {
+            pageNr++;
+            await LoadUsers();
+        }
+    }
+
+    private async Task PreviousPage()
+    {
+        if (pageNr > 1)
+        {
+            pageNr--;
+            await LoadUsers();
+        }
+    }
+
+}

@@ -1,0 +1,319 @@
+@page "/calendar"
+@attribute [Authorize(Roles = "Admin,Medewerker")]
+@using System.Globalization
+@using AP.BTP.Application.CQRS.TaskLists
+@using AP.BTP.Application.CQRS.EmployeeTasks
+@using AP.BTP.Application.CQRS.Users
+@inject IHttpClientFactory ClientFactory
+@inject AP.BTP.MobileUI.Services.Auth.MobileAuthenticationStateProvider AuthProvider
+
+<div class="calendar-page">
+    <div class="page-header">
+        <div class="page-title">Weekplanning</div>
+        <div class="page-actions">
+            <button class="icon-btn" @onclick="PrevWeek" aria-label="Vorige week"><i class="bi bi-chevron-left"></i></button>
+            <span class="chip">@WeekLabelCompact</span>
+            <button class="icon-btn" @onclick="NextWeek" aria-label="Volgende week"><i class="bi bi-chevron-right"></i></button>
+            <button class="icon-btn" @onclick="GoToday" aria-label="Ga naar vandaag"><i class="bi bi-calendar2-week"></i></button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="loading">Laden...</div>
+    }
+    else if (user == null)
+    {
+        <div class="alert alert-warning">Kon gebruiker niet laden.</div>
+    }
+    else
+    {
+        <div class="calendar-viewport">
+            <div class="calendar-week-grid">
+                <div class="time-axis">
+                    <div class="time-header"></div>
+                    @foreach (var t in timeSlots)
+                    {
+                        <div class="time-slot">@t</div>
+                    }
+                </div>
+
+                @for (int i = 0; i < 7; i++)
+                {
+                    var day = weekDays[i];
+                    <div class="day-column @(IsToday(day.Date) ? "today" : "")">
+                        <div class="day-header">
+                            <div class="day-name">@day.Date.ToString("ddd", CultureInfo.CreateSpecificCulture("nl-BE"))</div>
+                            <div class="day-date">@day.Date.ToString("dd")</div>
+                        </div>
+                        <div class="day-grid">
+                            @for (int r = 0; r < 30; r++)
+                            {
+                                <div class="grid-row"></div>
+                            }
+                            @if (day.Tasks?.Any() == true)
+                            {
+                                foreach (var task in day.Tasks)
+                                {
+                                    var span = GetRowSpan(task);
+                                    var start = GetGridRow(task);
+                                    <div class="task-card @GetTaskColorClass(task.Description)" style="grid-row: @start / span @span" @onclick="() => OpenTask(task, day.TaskList?.ZoneName, day.Date)">
+                                        <div class="task-title">@task.Description</div>
+                                        <div class="task-time">@FormatTimeRange(task)</div>
+                                    </div>
+                                }
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        @if (selectedTask != null)
+        {
+            <div class="modal-backdrop @modalAnim" @onclick="CloseTask">
+                <div class="modal-sheet" @onclick:stopPropagation="true">
+                    <div class="modal-header">
+                        <div class="modal-title">@selectedTask.Task.Description</div>
+                        <span class="status-pill @GetStatusClass(selectedTask.Task)">@GetStatusLabel(selectedTask.Task)</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="modal-row"><i class="bi bi-clock"></i> @FormatTimeRange(selectedTask.Task)</div>
+                        @if (!string.IsNullOrWhiteSpace(selectedTask.ZoneName))
+                        {
+                            <div class="modal-row"><i class="bi bi-geo-alt"></i> @selectedTask.ZoneName</div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private UserDTO? user;
+    private int? userDbId;
+
+    private DateTime currentWeekStart = GetMonday(DateTime.Today);
+    private bool isLoading = true;
+
+    private List<DaySchedule> weekDays = new();
+
+    private static DateTime GetMonday(DateTime date)
+    {
+        var diff = (int)date.DayOfWeek - (int)DayOfWeek.Monday;
+        if (diff < 0) diff += 7;
+        return date.AddDays(-diff).Date;
+    }
+
+    private string WeekLabel => $"{currentWeekStart:dd MMM} - {currentWeekStart.AddDays(6):dd MMM}";
+    private string WeekLabelCompact => BuildWeekLabel(currentWeekStart);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUser();
+        await LoadWeek();
+        isLoading = false;
+        timeSlots = BuildTimeSlots();
+    }
+
+    private async Task LoadUser()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            var email = await AuthProvider.GetEmailAsync();
+            if (string.IsNullOrWhiteSpace(email)) return;
+            var result = await client.GetFromJsonAsync<UserDTO>($"api/v1/user/byemail?email={Uri.EscapeDataString(email)}");
+            user = result;
+            userDbId = result?.Id;
+        }
+        catch { user = null; }
+    }
+
+    private async Task LoadWeek()
+    {
+        weekDays.Clear();
+        if (userDbId == null) return;
+
+        var client = ClientFactory.CreateClient("API");
+        var tasks = new List<Task<DaySchedule>>();
+
+        for (int i = 0; i < 7; i++)
+        {
+            var day = currentWeekStart.AddDays(i);
+            tasks.Add(LoadDay(client, day));
+        }
+
+        var results = await Task.WhenAll(tasks);
+        weekDays = results.ToList();
+    }
+
+    private static List<string> BuildTimeSlots()
+    {
+        var list = new List<string>();
+        var start = new TimeSpan(7, 0, 0);
+        for (int i = 0; i < 30; i++)
+        {
+            var ts = start + TimeSpan.FromMinutes(30 * i);
+            list.Add($"{ts.Hours:D2}:{ts.Minutes:D2}");
+        }
+        return list;
+    }
+
+    private async Task<DaySchedule> LoadDay(HttpClient client, DateTime date)
+    {
+        var dateStr = date.ToString("yyyy-MM-dd");
+        TaskListDTO? tl = null;
+        List<EmployeeTaskDTO> et = new();
+
+        try
+        {
+            tl = await client.GetFromJsonAsync<TaskListDTO>($"api/v1/tasklist/userdate?userId={userDbId}&date={dateStr}");
+            if (tl != null)
+            {
+                var result = await client.GetFromJsonAsync<IEnumerable<EmployeeTaskDTO>>($"api/v1/employeeTask/taskList/{tl.Id}");
+                et = result?.OrderBy(t => t.Order).ToList() ?? new List<EmployeeTaskDTO>();
+            }
+        }
+        catch { }
+
+        return new DaySchedule { Date = date, TaskList = tl, Tasks = et };
+    }
+
+    private async Task PrevWeek()
+    {
+        currentWeekStart = currentWeekStart.AddDays(-7);
+        isLoading = true;
+        await LoadWeek();
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task NextWeek()
+    {
+        currentWeekStart = currentWeekStart.AddDays(7);
+        isLoading = true;
+        await LoadWeek();
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task GoToday()
+    {
+        currentWeekStart = GetMonday(DateTime.Today);
+        isLoading = true;
+        await LoadWeek();
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task Refresh()
+    {
+        isLoading = true;
+        await LoadWeek();
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private static string BuildWeekLabel(DateTime start)
+    {
+        var culture = CultureInfo.CreateSpecificCulture("nl-BE");
+        var end = start.AddDays(6);
+        var sm = start.ToString("MMM", culture);
+        var em = end.ToString("MMM", culture);
+        if (sm == em)
+            return $"{start:dd}–{end:dd} {sm}";
+        return $"{start:dd} {sm} – {end:dd} {em}";
+    }
+
+    private class DaySchedule
+    {
+        public DateTime Date { get; set; }
+        public TaskListDTO? TaskList { get; set; }
+        public List<EmployeeTaskDTO> Tasks { get; set; } = new();
+    }
+
+    private List<string> timeSlots = new();
+
+    private static bool IsToday(DateTime d) => d.Date == DateTime.Today;
+
+    private static int GetGridRow(EmployeeTaskDTO task)
+    {
+        var start = task.PlannedStartTime;
+        var hour = start.Hour;
+        var minute = start.Minute;
+        var idx = ((hour - 7) * 2) + (minute >= 30 ? 1 : 0) + 1;
+        if (idx < 1) idx = 1;
+        if (idx > 30) idx = 30;
+        return idx;
+    }
+
+    private static int GetRowSpan(EmployeeTaskDTO task)
+    {
+        var planned = Math.Max(1, task.PlannedDuration) * 2;
+        var start = GetGridRow(task);
+        var maxSpan = Math.Min(planned, 30 - start + 1);
+        return Math.Max(1, maxSpan);
+    }
+
+    private static string FormatTimeRange(EmployeeTaskDTO task)
+    {
+        var start = task.PlannedStartTime;
+        var end = start.AddHours(task.PlannedDuration);
+        return $"{start:HH:mm} - {end:HH:mm}";
+    }
+
+    private static string GetTaskColorClass(string description)
+    {
+        if (string.IsNullOrWhiteSpace(description)) return "color-gray";
+        var key = description.ToLowerInvariant();
+        if (key.Contains("water")) return "color-blue";
+        if (key.Contains("bemes")) return "color-green";
+        if (key.Contains("snoei")) return "color-red";
+        if (key.Contains("train")) return "color-yellow";
+        if (key.Contains("inspect")) return "color-purple";
+        // Fallback deterministic hash
+        var hash = Math.Abs(description.GetHashCode());
+        return (hash % 2 == 0) ? "color-teal" : "color-gray";
+    }
+
+    private string? lastRefreshTs;
+
+    private SelectedTaskDetail? selectedTask;
+    private void OpenTask(EmployeeTaskDTO task, string? zoneName, DateTime date)
+    {
+        selectedTask = new SelectedTaskDetail { Task = task, ZoneName = zoneName, Date = date };
+        modalAnim = "fade-in";
+        StateHasChanged();
+    }
+    private async Task CloseTask()
+    {
+        modalAnim = "fade-out";
+        StateHasChanged();
+        await Task.Delay(160);
+        selectedTask = null;
+        StateHasChanged();
+    }
+
+    private static string GetStatusLabel(EmployeeTaskDTO task)
+    {
+        if (task.StopTime != null) return "Klaar";
+        if (task.StartTime != null) return "Bezig";
+        return "Te doen";
+    }
+    private static string GetStatusClass(EmployeeTaskDTO task)
+    {
+        if (task.StopTime != null) return "status-done";
+        if (task.StartTime != null) return "status-in-progress";
+        return "status-todo";
+    }
+
+    private class SelectedTaskDetail
+    {
+        public EmployeeTaskDTO Task { get; set; }
+        public string? ZoneName { get; set; }
+        public DateTime Date { get; set; }
+    }
+    private string modalAnim = "fade-in";
+}

@@ -1,0 +1,94 @@
+/* Global page header */
+.page-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 12px 0 8px;
+    padding: 0 4px;
+}
+.page-shell {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 0 12px;
+    width: 100%;
+}
+.page-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0;
+}
+.page-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.chip {
+    background: #f1f3f5;
+    border-radius: 16px;
+    padding: 4px 10px;
+    font-size: 14px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.icon-btn {
+    border: none;
+    background: transparent;
+    padding: 2px 6px;
+    font-size: 16px;
+}
+
+/* Unified modal styles and animations */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+.modal-backdrop.fade-in { animation: fadeIn 160ms ease-out forwards; }
+.modal-backdrop.fade-out { animation: fadeOut 160ms ease-in forwards; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+
+.modal-sheet {
+    width: calc(100% - 24px);
+    max-width: 420px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    padding-bottom: 20px;
+}
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 14px 0 14px;
+}
+.modal-title { font-weight: 700; }
+.modal-body { padding: 10px 14px 14px 14px; }
+.modal-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: #495057;
+    margin-top: 6px;
+}
+.status-pill {
+    border-radius: 12px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.status-todo { background: #e9ecef; color: #343a40; }
+.status-in-progress { background: #e7f1ff; color: #0d6efd; }
+.status-done { background: #e9f7ef; color: #198754; }
+
+/* Settings page layout tweaks */
+.settings-shell { padding: 12px; }
+.settings-frame { max-width: 640px; margin: 0 auto; border-radius: 16px; background: #fff; }
+.settings-inner { padding: 16px; }

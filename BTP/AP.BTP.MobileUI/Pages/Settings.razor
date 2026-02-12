@@ -1,0 +1,170 @@
+@page "/settings"
+@attribute [Authorize(Roles = "Admin,Medewerker")]
+@inject IHttpClientFactory ClientFactory
+@inject AP.BTP.MobileUI.Services.Auth.MobileAuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+@using AP.BTP.Application.CQRS.Users
+
+<div class="settings-page">
+    <div class="page-header">
+        <div class="page-title">Instellingen</div>
+        <div class="page-actions"></div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-4">
+            <div class="spinner-border text-success"></div>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(error))
+    {
+        <div class="alert alert-warning m-3">@error</div>
+    }
+    else
+    {
+        <div class="settings-content">
+            <div class="settings-card d-flex align-items-center gap-3">
+                <div class="settings-avatar bg-success text-white">
+                    <span>@GetInitials()</span>
+                </div>
+                <div class="flex-grow-1">
+                    <div class="fw-semibold">@displayName</div>
+                    <div class="text-muted small">ID: @(user?.Username ?? "Onbekend")</div>
+                    <div class="text-muted small mt-2">Email</div>
+                    <div class="small">@user?.Email</div>
+                </div>
+            </div>
+
+            <a class="settings-card settings-card-ghost d-block text-decoration-none text-reset" @onclick="NavToChat">
+                <div class="d-flex align-items-start gap-3">
+                    <div class="text-primary"><i class="bi bi-info-circle"></i></div>
+                    <div class="flex-grow-1">
+                        <div class="fw-semibold">Vragen over BTP</div>
+                        <div class="text-muted small">Versie 1.0.0 • Hulp &amp; Ondersteuning</div>
+                    </div>
+                    <div class="text-muted">
+                        <i class="bi bi-chevron-right"></i>
+                    </div>
+                </div>
+            </a>
+
+            <a class="settings-card settings-card-ghost d-block text-decoration-none text-reset" @onclick="NavToPlans">
+                <div class="d-flex align-items-start gap-3">
+                    <div class="text-primary"><i class="bi bi-file-earmark-pdf"></i></div>
+                    <div class="flex-grow-1">
+                        <div class="fw-semibold">Onderhoudsplannen</div>
+                        <div class="text-muted small">Instructies voor alle bomen in BTP</div>
+                    </div>
+                    <div class="text-muted">
+                        <i class="bi bi-chevron-right"></i>
+                    </div>
+                </div>
+            </a>
+
+            <div class="settings-card settings-card-danger text-center">
+                <div class="text-danger fs-3 mb-2">
+                    <i class="bi bi-box-arrow-right"></i>
+                </div>
+                <div class="fw-semibold text-danger">Uitloggen</div>
+                <div class="text-muted small mb-3">Je moet opnieuw inloggen om toegang te krijgen tot je taken</div>
+                <button class="btn btn-danger w-100" @onclick="Logout">Uitloggen</button>
+            </div>
+        </div>
+
+        <div class="settings-footer text-center text-muted small mt-4">
+            BTP - Boomkwekerij Taak Planner<br />
+            Interne tool voor boomkwekerij takenbeheer
+        </div>
+    }
+</div>
+
+@code {
+    private UserDTO? user;
+    private string displayName = "Medewerker";
+    private bool isLoading = true;
+    private string error = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUser();
+    }
+
+    private async Task LoadUser()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            var email = await AuthProvider.GetEmailAsync();
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                error = "Email niet gevonden in sessie.";
+                return;
+            }
+
+            var response = await client.GetAsync($"api/v1/user/byemail?email={Uri.EscapeDataString(email)}");
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                error = "Profiel niet gevonden.";
+                return;
+            }
+
+            response.EnsureSuccessStatusCode();
+            user = await response.Content.ReadFromJsonAsync<UserDTO>();
+            var fullName = $"{user?.FirstName} {user?.LastName}".Trim();
+            displayName = string.IsNullOrWhiteSpace(fullName) ? (user?.Email ?? displayName) : fullName;
+        }
+        catch (Exception ex)
+        {
+            error = $"Kon profiel niet laden: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task Logout()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            await client.PostAsync("/api/auth/logout", null);
+        }
+        catch { }
+
+        await AuthProvider.SignOutAsync();
+        Nav.NavigateTo("login", true);
+    }
+
+    private void NavToChat()
+    {
+        Nav.NavigateTo("btp-chat", true);
+    }
+
+    private void NavToPlans()
+    {
+        Nav.NavigateTo("maintenance-plans", true);
+    }
+
+    private string GetInitials()
+    {
+        string source = $"{user?.FirstName} {user?.LastName}".Trim();
+        if (string.IsNullOrWhiteSpace(source))
+            source = user?.Username ?? user?.Email ?? "M";
+
+        var parts = source
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .ToArray();
+
+        if (parts.Length >= 2)
+            return $"{parts[0][0]}{parts[1][0]}".ToUpperInvariant();
+
+        var single = parts.FirstOrDefault() ?? source;
+        if (single.Length >= 2)
+            return $"{single[0]}{single[1]}".ToUpperInvariant();
+
+        return single.Substring(0, 1).ToUpperInvariant();
+    }
+}

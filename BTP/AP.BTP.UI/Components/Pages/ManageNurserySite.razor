@@ -1,0 +1,467 @@
+@page "/ManageNurserySite"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager NavigationManager
+@using AP.BTP.Application.CQRS.NurserySites
+@using AP.BTP.UI.Components.Layout
+@using System.Net.Http.Json
+
+
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <AuthorizeView Roles="Admin,Verantwoordelijke">
+            <Authorized>
+                <div>
+                    <div class="fw-semibold">Beheer kweeksites</div>
+                    <small class="text-muted">Beheer kweeklocaties en hun eigenschappen</small>
+                </div>
+                <select class="form-select form-select-sm w-auto"
+                        value="@filterArchivedValue"
+                        @onchange="ArchiveFilterChanged">
+                    <option value="false">Niet gearchiveerd</option>
+                    <option value="true">Gearchiveerd</option>
+                </select>
+                <AuthorizeView Roles="Admin" Context="fixfoutje">
+                    <button type="button" class="btn btp-primary" @onclick="GoToAddNurserySite">
+                        <span class="bi bi-plus-lg"></span> Nieuwe Site
+                    </button>
+                </AuthorizeView>
+            </Authorized>
+
+            <NotAuthorized>
+                <div>
+                    <div class="fw-semibold">Bekijk kweeksites</div>
+                    <small class="text-muted">Bekijk kweeklocaties en hun eigenschappen</small>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
+
+
+    </div>
+
+    <!-- Nursery Sites Cards -->
+    <div class="row g-4 slidein-animation">
+        @if (nurserySites == null)
+        {
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-success" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mt-3 text-muted">Kweeksites laden...</p>
+            </div>
+        }
+        else if (!nurserySites.Any())
+        {
+            <div class="col-12 text-center py-5">
+                <i class="bi bi-inbox fs-1 text-muted d-block mb-3"></i>
+                <h5 class="text-muted">Geen kweeksites gevonden</h5>
+                <p class="text-muted">Voeg je eerste kweeksite toe om te beginnen.</p>
+            </div>
+        }
+        else
+        {
+            @foreach (var site in nurserySites)
+            {
+                <div class="col-lg-4 col-md-6">
+                    <div class="card nursery-site-card h-100 shadow-sm">
+                        <!-- Site Image -->
+                        <div class="card-img-top nursery-site-image">
+                            @if (!string.IsNullOrEmpty(site.GroundPlan.FileUrl))
+                            {
+                                <img src="@site.GroundPlan.FileUrl" alt="@site.Name" class="img-fluid" />
+                            }
+                            else
+                            {
+                                <div class="placeholder-image d-flex align-items-center justify-content-center">
+                                    <i class="bi bi-image fs-1 text-muted"></i>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Card Body -->
+                        <div class="card-body">
+                            <h5 class="card-title fw-bold mb-3">@site.Name</h5>
+
+                            <!-- Location -->
+                            <div class="d-flex align-items-center mb-2">
+                                <i class="bi bi-geo-alt-fill text-success me-2"></i>
+                                <span class="text-muted">
+                                    @if (site.Address != null)
+                                    {
+                                        <span class="text-muted">
+                                            @site.Address.StreetName @site.Address.HouseNumber, @site.Address.PostalCode
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">Locatie onbekend</span>
+                                    }
+                                </span>
+                            </div>
+
+                            <!-- Area -->
+                            <div class="d-flex align-items-center mb-2">
+                                <i class="bi bi-rulers text-success me-2"></i>
+                                <span class="text-muted">
+                                    @site.Zones.Sum(x => x.Size) m<sup>2</sup>
+                                </span>
+                            </div>
+
+                            <!-- Zones -->
+                            <div class="d-flex align-items-center">
+                                <i class="bi bi-grid-3x3 text-success me-2"></i>
+                                @if (site.Zones.Count == 1)
+                                {
+                                    <span class="text-muted"> 1 zone  </span>
+                                }
+
+                                @if (@site.Zones.Count == 0 || @site.Zones.Count == null)
+                                {
+                                    <span class="text-muted"> Geen zones</span>
+                                }
+                                @if (@site.Zones.Count > 1)
+                                {
+                                    <span class="text-muted"> @site.Zones.Count zones</span>
+                                }
+
+
+
+                            </div>
+                        </div>
+
+                        <!-- Card Footer -->
+                        <div class="card-footer bg-transparent border-0 pt-0">
+                            <div class="d-flex justify-content-end">
+                                <button class="btn btn-outline-success btn-sm me-2" title="Bekijk details" @onclick="() => OpenModal(site)">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+
+                                <AuthorizeView Roles="Admin">
+                                    <button class="btn btn-outline-primary btn-sm" title="Bewerken" @onclick="() => GoToEditNurserySite(site.Id)">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm ms-2" title="Archiveer" @onclick="() => ToggleArchive(site)">
+                                        <i class="bi bi-archive"></i>
+                                    </button>
+                                </AuthorizeView>
+                                <AuthorizeView Roles="Admin,Verantwoordelijke">
+                                    @if (site.IsArchived)
+                                    {
+                                        <button class="btn btn-outline-danger btn-sm ms-2" title="Verwijder" @onclick="() => DeleteNurserySite(site)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                </AuthorizeView>
+
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+    @if (selectedSite != null)
+    {
+        <div class="modal fade show d-block slidein-animation" style="background-color: rgba(0,0,0,0.5);" tabindex="-1" @onclick="CloseModal">
+            <div class="modal-dialog modal-dialog-centered modal-lg" @onclick:stopPropagation="true">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">@selectedSite.Name</h5>
+                        <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        @if (!string.IsNullOrEmpty(selectedSite.GroundPlan.FileUrl))
+                        {
+                            <img src="@selectedSite.GroundPlan.FileUrl" class="img-fluid" />
+                        }
+                        else
+                        {
+                            <div class="placeholder-image d-flex align-items-center justify-content-center" style="height:300px;">
+                                <i class="bi bi-image fs-1 text-muted"></i>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Pagination -->
+    @if (nurserySites != null && nurserySites.Any())
+    {
+        <div class="slidein-animation d-flex justify-content-center align-items-center mt-5">
+            <nav aria-label="Nursery sites pagination">
+                <ul class="pagination mb-0">
+                    <li class="page-item @(pageNr == 1 ? "disabled" : "")">
+                        <button class="page-link" @onclick="PreviousPage" disabled="@(pageNr == 1)">
+                            <i class="bi bi-chevron-left"></i> Vorige
+                        </button>
+                    </li>
+                    <li class="page-item active">
+                        <span class="page-link">@pageNr</span>
+                    </li>
+                    <li class="page-item @(pageNr >= totalPages ? "disabled" : "")">
+                        <button class="page-link" @onclick="NextPage" disabled="@(pageNr >= totalPages)">
+                            Volgende <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    }
+</div>
+
+<Popup @ref="archiveBlockedModal"
+       Title="Archiveren niet mogelijk"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        <p class="mb-2">@archiveBlockedMessage</p>
+        <p class="text-muted small">Deze kweeksite is gekoppeld aan zones die in gebruik zijn en kan daarom niet worden gearchiveerd.</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <button class="btn btp-primary" @onclick="CloseArchiveBlockedModal">Ok</button>
+    </FooterTemplate>
+</Popup>
+
+<Popup @ref="deleteConfirmModal"
+       Title="Kweeksite verwijderen"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        <p class="mb-2">Weet je zeker dat je deze kweeksite wilt verwijderen?</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <button class="btn btn-secondary me-2" @onclick="() => deleteConfirmModal?.HideAsync()">Annuleren</button>
+        <button class="btn btn-danger" @onclick="ConfirmDelete">Verwijderen</button>
+    </FooterTemplate>
+</Popup>
+
+<Popup @ref="deleteBlockedModal"
+       Title="Verwijderen niet mogelijk"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        <p class="mb-2">@deleteBlockedMessage</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <button class="btn btp-primary" @onclick="CloseDeleteBlockedModal">Ok</button>
+    </FooterTemplate>
+</Popup>
+
+@code {
+    private IEnumerable<NurserySiteDTO> nurserySites;
+    private GroundPlanDTO groundPlan;
+    private int pageNr = 1;
+    private int pageSize = 6;
+    private int totalNurserySites;
+    private int totalPages => (int)Math.Ceiling((double)totalNurserySites / pageSize);
+    private NurserySiteDTO selectedSite;
+    private Popup archiveBlockedModal;
+    private string archiveBlockedMessage = string.Empty;
+    private string filterArchivedValue = "false";
+    private Popup deleteConfirmModal;
+    private Popup deleteBlockedModal;
+    private string deleteBlockedMessage = string.Empty;
+    private int? pendingDeleteId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNurserySites();
+    }
+
+    private async Task LoadNurserySites()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            totalNurserySites = await client.GetFromJsonAsync<int>($"api/v1/nurserysite/count?isArchived={filterArchivedValue}");
+            nurserySites = await client.GetFromJsonAsync<IEnumerable<NurserySiteDTO>>(
+                $"api/v1/nurserysite?pageNr={pageNr}&pageSize={pageSize}&isArchived={filterArchivedValue}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden kweeksites met filter: {ex.Message}");
+
+            // Fallback zonder filter wanneer de API de queryparameter (nog) niet ondersteunt.
+            try
+            {
+                totalNurserySites = await client.GetFromJsonAsync<int>("api/v1/nurserysite/count");
+                nurserySites = await client.GetFromJsonAsync<IEnumerable<NurserySiteDTO>>(
+                    $"api/v1/nurserysite?pageNr={pageNr}&pageSize={pageSize}");
+            }
+            catch (Exception innerEx)
+            {
+                Console.WriteLine($"Fallback laden kweeksites mislukt: {innerEx.Message}");
+                nurserySites = Enumerable.Empty<NurserySiteDTO>();
+                totalNurserySites = 0;
+            }
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (pageNr < totalPages)
+        {
+            pageNr++;
+            await LoadNurserySites();
+        }
+    }
+
+    private async Task PreviousPage()
+    {
+        if (pageNr > 1)
+        {
+            pageNr--;
+            await LoadNurserySites();
+        }
+    }
+
+    private void GoToAddNurserySite()
+    {
+        NavigationManager.NavigateTo("/AddNurserySite");
+    }
+
+    private void OpenModal(NurserySiteDTO site)
+    {
+        selectedSite = site;
+    }
+
+    private void CloseModal()
+    {
+        selectedSite = null;
+    }
+
+    private void GoToEditNurserySite(int id)
+    {
+        NavigationManager.NavigateTo($"/EditNurserySite/{id}");
+    }
+
+    private async Task ToggleArchive(NurserySiteDTO site)
+    {
+        var client = ClientFactory.CreateClient("API");
+        var cmd = new EditNurserySiteArchivedCommand
+            {
+                Id = site.Id,
+                IsArchived = !site.IsArchived
+            };
+
+        var response = await client.PutAsJsonAsync("api/v1/NurserySite/archive", cmd);
+        if (response.IsSuccessStatusCode)
+        {
+            await LoadNurserySites();
+            return;
+        }
+
+        var fallbackMessage = "Archiveren is niet toegestaan omdat zones in gebruik zijn.";
+        try
+        {
+            var apiResult = await response.Content.ReadFromJsonAsync<ApiResult>();
+            if (!string.IsNullOrWhiteSpace(apiResult?.Message))
+                fallbackMessage = apiResult.Message;
+        }
+        catch
+        {
+            var raw = await response.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(raw))
+                fallbackMessage = raw;
+        }
+
+        await ShowArchiveBlockedModal(fallbackMessage);
+    }
+
+    private async Task ShowArchiveBlockedModal(string message)
+    {
+        archiveBlockedMessage = message;
+        if (archiveBlockedModal != null)
+            await archiveBlockedModal.ShowAsync();
+    }
+
+    private async Task CloseArchiveBlockedModal()
+    {
+        if (archiveBlockedModal != null)
+            await archiveBlockedModal.HideAsync();
+    }
+
+    private async Task DeleteNurserySite(NurserySiteDTO site)
+    {
+        if (!site.IsArchived)
+        {
+            await ShowDeleteBlockedModal("Verwijderen kan alleen voor gearchiveerde kweeksites.");
+            return;
+        }
+
+        pendingDeleteId = site.Id;
+        if (deleteConfirmModal != null)
+            await deleteConfirmModal.ShowAsync();
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (!pendingDeleteId.HasValue) return;
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            var response = await client.DeleteAsync($"api/v1/NurserySite/{pendingDeleteId.Value}");
+            if (response.IsSuccessStatusCode)
+            {
+                await deleteConfirmModal?.HideAsync();
+                pendingDeleteId = null;
+                await LoadNurserySites();
+                return;
+            }
+
+            var fallbackMessage = "Verwijderen mislukt.";
+            try
+            {
+                var apiResult = await response.Content.ReadFromJsonAsync<ApiResult>();
+                if (!string.IsNullOrWhiteSpace(apiResult?.Message))
+                    fallbackMessage = apiResult.Message;
+            }
+            catch
+            {
+                var raw = await response.Content.ReadAsStringAsync();
+                if (!string.IsNullOrWhiteSpace(raw))
+                    fallbackMessage = raw;
+            }
+
+            await ShowDeleteBlockedModal(fallbackMessage);
+        }
+        catch (Exception ex)
+        {
+            await ShowDeleteBlockedModal($"Verwijderen mislukt: {ex.Message}");
+        }
+        finally
+        {
+            pendingDeleteId = null;
+        }
+    }
+
+    private async Task ShowDeleteBlockedModal(string message)
+    {
+        deleteBlockedMessage = message;
+        if (deleteBlockedModal != null)
+            await deleteBlockedModal.ShowAsync();
+    }
+
+    private async Task CloseDeleteBlockedModal()
+    {
+        if (deleteBlockedModal != null)
+            await deleteBlockedModal.HideAsync();
+    }
+
+    private class ApiResult
+    {
+        public bool Succeeded { get; set; }
+        public string Message { get; set; }
+    }
+
+    private async Task ArchiveFilterChanged(ChangeEventArgs args)
+    {
+        filterArchivedValue = args?.Value?.ToString() ?? "false";
+        pageNr = 1;
+        await LoadNurserySites();
+        StateHasChanged();
+    }
+}

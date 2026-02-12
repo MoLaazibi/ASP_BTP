@@ -1,0 +1,202 @@
+.mp-shell {
+    padding: 16px;
+}
+
+.mp-frame {
+    background: #fff;
+    border-radius: 16px;
+}
+
+.mp-inner {
+    padding: 20px;
+}
+
+.mp-header {
+    margin-bottom: 20px;
+}
+
+.mp-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+}
+
+.mp-subtitle {
+    color: #6c757d;
+    font-size: 0.95rem;
+    margin-top: 4px;
+}
+
+.mp-loading {
+    text-align: center;
+    padding: 24px 0;
+}
+
+.mp-error {
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    padding: 12px;
+    border-radius: 8px;
+    margin: 12px 0;
+    color: #856404;
+}
+
+.mp-empty {
+    text-align: center;
+    color: #6c757d;
+    padding: 50px 0;
+}
+
+.mp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mp-card {
+    display: grid;
+    grid-template-columns: 48px 1fr 24px;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px;
+    border-radius: 14px;
+    border: 1px solid #e8ebed;
+    background: #fff;
+    text-align: left;
+}
+
+.mp-card-thumb {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: #f1f3f5;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: #adb5bd;
+    font-size: 1.3rem;
+}
+
+.mp-card-title {
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.mp-card-desc {
+    color: #6c757d;
+    font-size: 0.9rem;
+    margin-top: 2px;
+}
+
+.mp-card-chevron {
+    color: #adb5bd;
+}
+
+.mp-pagination {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+.mp-footer {
+    margin-top: 40px;
+    text-align: center;
+    color: #6c757d;
+    font-size: 0.85rem;
+}
+
+.mp-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.35);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+}
+
+    .mp-modal-backdrop.fade-in {
+        animation: fadeIn 160ms ease-out forwards;
+    }
+
+    .mp-modal-backdrop.fade-out {
+        animation: fadeOut 160ms ease-in forwards;
+    }
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+    }
+}
+
+.mp-modal-sheet {
+    width: calc(100% - 24px);
+    max-width: 420px;
+    background: #fff;
+    border-radius: 14px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+    padding-bottom: 10px;
+}
+
+.mp-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px 6px 16px;
+}
+
+.mp-modal-title {
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.mp-modal-close {
+    border: none;
+    background: none;
+    padding: 4px 8px;
+    color: #6c757d;
+    font-size: 1rem;
+}
+
+.mp-modal-body {
+    padding: 10px 16px 16px 16px;
+}
+
+.mp-season-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+}
+
+.mp-season-btn {
+    border: 1px solid #e8ebed;
+    background: #fff;
+    border-radius: 12px;
+    padding: 12px;
+    font-weight: 600;
+}
+
+    .mp-season-btn:disabled {
+        opacity: 0.5;
+    }
+
+.mp-season-hint {
+    color: #6c757d;
+    font-size: 0.9rem;
+    margin-top: 14px;
+    text-align: center;
+}

@@ -1,0 +1,295 @@
+@page "/UserList"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager NavigationManager
+@using AP.BTP.Application.CQRS.Users
+@using AP.BTP.Application.CQRS.NurserySites
+
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+
+        <div>
+        <AuthorizeView Roles="Admin">
+            <Authorized>
+                <div class="fw-semibold">Beheer Gebruikers</div>
+                <small class="text-muted">Bekijk en beheer bestaande gebruikers</small>
+            </Authorized>
+            <NotAuthorized>
+                <div class="fw-semibold">Bekijk Gebruikers</div>
+                <small class="text-muted">Bekijk bestaande gebruikers</small>
+            </NotAuthorized>
+        </AuthorizeView>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <select class="form-select form-select-sm w-auto" value="@siteFilter" @onchange="OnSiteFilterChanged">
+                <option value="all">Alle kweeksites</option>
+                <option value="none">Geen kweeksite</option>
+                @if (nurserySites != null)
+                {
+                    foreach (var s in nurserySites)
+                    {
+                        <option value="@s.Id">@s.Name</option>
+                    }
+                }
+            </select>
+        </div>
+    </div>
+
+    <!-- Zoekveld 
+    <div class="input-group mb-3" style="max-width: 400px;">
+        <input type="text" class="form-control" placeholder="Zoek op e-mailadres..."
+               @bind="searchEmail" @bind:event="oninput" />
+        <button class="btn btn-outline-secondary" @onclick="SearchByEmail">
+            <i class="bi bi-search"></i>
+        </button>
+        <button class="btn btn-outline-danger" @onclick="ClearSearch">
+            <i class="bi bi-x-lg"></i>
+        </button>
+    </div>
+    -->
+    <!-- Gebruikers Tabel -->
+    <div class="card shadow-sm border-0 slidein-animation">
+        <div class="card-body p-0">
+            @if (users == null)
+            {
+                <div class="p-4 text-center text-muted">
+                    <div class="spinner-border spinner-border-sm me-2"></div>
+                    Gebruikers laden...
+                </div>
+            }
+            else if (!users.Any())
+            {
+                <div class="p-4 text-center text-muted">
+                    <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+                    Geen gebruikers gevonden.
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead class="table-light border-bottom border-1">
+                            <tr>
+                                <th class="ps-3">#</th>
+                                <th>Voornaam</th>
+                                <th>Achternaam</th>
+                                <th>Email</th>
+                                <th>Kweeksite</th>
+                                <th>Rollen</th>
+                                <AuthorizeView Roles="Admin">
+                                <th class="text-end pe-3">Acties</th>
+                                </AuthorizeView>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in users)
+                            {
+                                <tr class="border-bottom">
+                                    <td class="ps-3 text-muted">@user.Id</td>
+                                    <td>@(string.IsNullOrWhiteSpace(user.FirstName) ? "-" : user.FirstName)</td>
+                                    <td>@(string.IsNullOrWhiteSpace(user.LastName) ? "-" : user.LastName)</td>
+                                    <td class="fw-semibold">@user.Email</td>
+                                    <td>@GetNurserySiteNameForUser(user.Id)</td>
+                                    <td>
+                                        @if (user.Roles != null && user.Roles.Any())
+                                        {
+                                            <span>@string.Join(", ", user.Roles)</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">Geen rollen</span>
+                                        }
+                                    </td>
+                                    <AuthorizeView Roles="Admin">
+                                    <td class="text-end pe-3">
+                                        <button class="btn btn-sm" title="Bewerken" @onclick="() => EditUser(user.Email)">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                    </td>
+                                    </AuthorizeView>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="d-flex justify-content-end align-items-center p-3 border-top bg-light">
+                    <button class="btn btn-outline-secondary me-2" @onclick="PreviousPage" disabled="@(pageNr == 1)">
+                        <i class="bi bi-chevron-left"></i> Vorige
+                    </button>
+                    <span class="mx-2 text-muted small">Pagina @pageNr van @totalPages</span>
+                    <button class="btn btn-outline-secondary" @onclick="NextPage" disabled="@(pageNr == totalPages)">
+                        Volgende <i class="bi bi-chevron-right"></i>
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private IEnumerable<UserDTO>? users;
+    private IEnumerable<UserDTO>? allUsers;
+    private IEnumerable<UserDTO>? filteredUsers;
+    private int pageNr = 1;
+    private int pageSize = 10;
+    private int totalUsers = 0;
+    private int totalPages => Math.Max(1, (int)Math.Ceiling((double)totalUsers / pageSize));
+    private string siteFilter = "all";
+    private IEnumerable<NurserySiteDTO>? nurserySites;
+    private Dictionary<int, string> userNurserySiteNames = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadNurserySites();
+        await LoadUsers();
+        ApplyFilterAndPaging();
+    }
+
+    private async Task LoadUsers()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            // Haal een ruime lijst op en pagineer client-side voor filterondersteuning
+            allUsers = await client.GetFromJsonAsync<IEnumerable<UserDTO>>(
+                $"api/v1/User?pageNr=1&pageSize=1000");
+            filteredUsers = allUsers ?? Enumerable.Empty<UserDTO>();
+            totalUsers = filteredUsers.Count();
+            users = filteredUsers.Take(pageSize).ToList();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden gebruikers: {ex.Message}");
+            allUsers = Enumerable.Empty<UserDTO>();
+            filteredUsers = allUsers;
+            totalUsers = 0;
+            users = filteredUsers;
+        }
+    }
+
+    private async Task LoadNurserySites()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            nurserySites = await client.GetFromJsonAsync<IEnumerable<NurserySiteDTO>>(
+                "api/v1/nurserysite?pageNr=1&pageSize=1000&isArchived=false");
+            userNurserySiteNames = (nurserySites ?? Enumerable.Empty<NurserySiteDTO>())
+                .GroupBy(s => s.UserId)
+                .ToDictionary(g => g.Key, g => g.First().Name);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden kweeksites: {ex.Message}");
+            nurserySites = Enumerable.Empty<NurserySiteDTO>();
+            userNurserySiteNames.Clear();
+        }
+    }
+
+    private void ApplyFilterAndPaging()
+    {
+        var source = allUsers ?? Enumerable.Empty<UserDTO>();
+        if (siteFilter == "all")
+        {
+            filteredUsers = source;
+        }
+        else if (siteFilter == "none")
+        {
+            var assignedUserIds = (nurserySites ?? Enumerable.Empty<NurserySiteDTO>())
+                .Select(s => s.UserId)
+                .ToHashSet();
+            filteredUsers = source.Where(u => !assignedUserIds.Contains(u.Id)).ToList();
+        }
+        else if (int.TryParse(siteFilter, out var selectedSiteId))
+        {
+            var selectedSite = (nurserySites ?? Enumerable.Empty<NurserySiteDTO>())
+                .FirstOrDefault(s => s.Id == selectedSiteId);
+            if (selectedSite != null)
+                filteredUsers = source.Where(u => u.Id == selectedSite.UserId).ToList();
+            else
+                filteredUsers = Enumerable.Empty<UserDTO>();
+        }
+        else
+        {
+            filteredUsers = source;
+        }
+
+        totalUsers = filteredUsers.Count();
+        if (pageNr < 1) pageNr = 1;
+        var maxPages = Math.Max(1, (int)Math.Ceiling((double)totalUsers / pageSize));
+        if (pageNr > maxPages) pageNr = maxPages;
+        users = filteredUsers.Skip((pageNr - 1) * pageSize).Take(pageSize).ToList();
+    }
+
+    private async Task OnSiteFilterChanged(ChangeEventArgs args)
+    {
+        siteFilter = args?.Value?.ToString() ?? "all";
+        pageNr = 1;
+        ApplyFilterAndPaging();
+        await Task.CompletedTask;
+    }
+
+    private string GetNurserySiteNameForUser(int userId)
+    {
+        if (userNurserySiteNames.TryGetValue(userId, out var name))
+            return name;
+        return "-";
+    }
+    /*
+    private async Task SearchByEmail()
+    {
+        var client = ClientFactory.CreateClient("API");
+
+        if (string.IsNullOrWhiteSpace(searchEmail))
+        {
+            await LoadUsers();
+            return;
+        }
+
+        try
+        {
+            users = await client.GetFromJsonAsync<IEnumerable<UserDTO>>(
+                $"api/v1/User/byemail?email={searchEmail}");
+            pageNr = 1;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij zoeken: {ex.Message}");
+            users = Enumerable.Empty<UserDTO>();
+        }
+    }
+
+    private async Task ClearSearch()
+    {
+        searchEmail = string.Empty;
+        await LoadUsers();
+    }
+    */
+    private async Task NextPage()
+    {
+        if (pageNr < totalPages)
+        {
+            pageNr++;
+            ApplyFilterAndPaging();
+            await Task.CompletedTask;
+        }
+    }
+
+    private async Task PreviousPage()
+    {
+        if (pageNr > 1)
+        {
+            pageNr--;
+            ApplyFilterAndPaging();
+            await Task.CompletedTask;
+        }
+    }
+
+    // Bewerken via e-mailadres
+    private void EditUser(string email)
+    {
+        NavigationManager.NavigateTo($"/EditUser/{Uri.EscapeDataString(email)}");
+    }
+}

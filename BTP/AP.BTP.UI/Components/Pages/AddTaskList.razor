@@ -1,0 +1,562 @@
+@page "/AddTaskList"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Navigation
+@using AP.BTP.Application.CQRS
+@using AP.BTP.Application.CQRS.Categories
+@using AP.BTP.Application.CQRS.EmployeeTasks
+@using AP.BTP.Application.CQRS.NurserySites
+@using AP.BTP.Application.CQRS.TaskLists
+@using AP.BTP.Application.CQRS.Users
+
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div class="d-flex align-items-center gap-2">
+            <a class="btn btn-light border" href="/ManageTaskList">
+                <span class="bi bi-arrow-left"></span> Terug
+            </a>
+            <div>
+                <div class="fw-semibold">Nieuwe Takenlijst</div>
+                <small class="text-muted">Maak een nieuwe takenlijst voor een medewerker</small>
+            </div>
+        </div>
+        <button type="button" class="btn btp-primary" @onclick="CreateTaskList" disabled="@isLoading">
+            @(isLoading ? "Bezig met opslaan..." : "Toevoegen")
+        </button>
+    </div>
+
+    <!-- Basis informatie -->
+    <div class="card mb-4 slidein-animation">
+        <div class="card-header bg-white fw-semibold">Basis Informatie</div>
+        <div class="card-body">
+            <div class="row g-3 align-items-center">
+                <div class="container">
+                    <label class="form-label row">Datum</label>
+                    <div class="row gap-3">
+                        <input class="form-control col-sm" type="date" @bind-value="taskListDate"/>
+                        @if (user != null)
+                        {
+                            <button class="btn btp-primary col-sm" id="showModal" @onclick="ShowUserModal">@user.Email</button>
+                        }
+                        else
+                        {
+                            <button class="btn btp-primary col-sm" id="showModal" @onclick="ShowUserModal">Medewerker kiezen...</button>
+                        }
+                        @if (zone != null)
+                        {
+                            <button class="btn btp-primary col-sm" id="showModal" @onclick="ShowZoneModal">@FormatZone(zone)</button>
+                        }
+                        else
+                        {
+                            <button class="btn btp-primary col-sm" id="showModal" @onclick="ShowZoneModal">Zone kiezen...</button>
+                        }
+
+                    </div>
+                   <Popup
+                      @ref=userModal
+                      Title="Medewerker selecteren" 
+                      IsVerticallyCentered=true
+                      BodyText="Medewerkers lijst"
+                      Size="ModalSize.Regular"
+                      IsScrollable=true>
+                      <BodyTemplate>
+                            <div>
+                                <input class="form-control mb-3"
+                                       placeholder="Zoek medewerker..."
+                                       @bind="UserSearchTerm"
+                                       @bind:event="oninput" />
+                                <ul class="list-group">
+                                    @if (filteredUsers is not null && filteredUsers.Any())
+                                    {
+                                        @foreach (var user in filteredUsers)
+                                        {
+                                            <li class="list-group-item list-group-item-action"
+                                                @onclick="() => SetUserFromList(user)">
+                                                @user.Email
+                                            </li>
+                                        }
+                                        <li class="list-group-item list-group-item-action"
+                                            @onclick="() => SetUserFromList(null)">
+                                            -- geen medewerker --
+                                        </li>
+                                    }
+                                    else
+                                    {
+                                        <li class="list-group-item text-muted">Geen users gevonden.</li>
+                                    }
+                                </ul>
+                            </div>
+
+                      </BodyTemplate>
+                   </Popup>
+
+                    <Popup @ref=zoneModal
+                           Title="Zone Selecteren"
+                           IsVerticallyCentered=true
+                           BodyText="Zone lijst"
+                           Size="ModalSize.Regular"
+                           IsScrollable=true>
+                        <BodyTemplate>
+                            <div>
+                                <input class="form-control mb-3"
+                                       placeholder="Zoek zone..."
+                                       @bind="ZoneSearchTerm"
+                                       @bind:event="oninput" />
+                                <ul class="list-group">
+                                    @if (filteredZones is not null && filteredZones.Any())
+                                    {
+                                        @foreach (var zone in filteredZones)
+                                        {
+                                            <li class="list-group-item list-group-item-action"
+                                                @onclick="() => SetZoneFromList(zone)">
+                                                @FormatZone(zone)
+                                            </li>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <li class="list-group-item text-muted">Geen zones gevonden.</li>
+                                    }
+                                </ul>
+                            </div>
+                        </BodyTemplate>
+                    </Popup>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Taken -->
+    <div class="card slidein-animation">
+        <div class="card-header bg-white d-flex align-items-center justify-content-between">
+            <span class="fw-semibold">Taken</span>
+            <button type="button" class="btn btp-primary btn-sm" @onclick="AddTask">
+                <span class="bi bi-plus-lg"></span> Voeg taak toe
+            </button>
+        </div>
+        <div class="card-body">
+            @for (int i = 0; i < tasks.Count; i++)
+            {
+                var index = i;
+                <div class="border rounded p-3 mb-3 bg-light">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="fw-semibold">Taak @(index + 1)</div>
+                        <button type="button" class="btn btn-link text-danger p-0" @onclick="() => RemoveTask(index)">
+                            <span class="bi bi-trash"></span>
+                        </button>
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-12">
+                            <label class="form-label">Omschrijving</label>
+                            <input class="form-control" type="text" @bind="tasks[index].Description" placeholder="Beschrijf de taak..." />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Verwachte duur (uren)</label>
+                            <input class="form-control" type="number" step="1" min="0" @bind="tasks[index].PlannedDuration" placeholder="bijv. 2" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Geplande starttijd</label>
+                            <input class="form-control" type="time" @bind="tasks[index].PlannedStartTime" />
+                        </div>
+                        <div class="col-md-3 d-none">
+                            <label class="form-label">Volgorde</label>
+                            <input class="form-control" type="number" @bind="tasks[index].Order" />
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Categorie</label>
+                            <select class="form-select"
+                                    @bind-Value="tasks[index].CategoryId"
+                                    @bind-Value:event="onchange">
+
+                                <option value="">-- kies categorie --</option>
+
+                                @foreach (var cat in categories)
+                                {
+                                    <option value="@cat.Id">@cat.Name</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert @((isSuccess ? "alert-success" : "alert-danger")) mt-3" role="alert">
+            @message
+        </div>
+    }
+
+    @if (validationErrors.Any())
+    {
+        <div class="alert alert-danger mt-3">
+            <ul>
+                @foreach (var error in validationErrors)
+                {
+                    <li>@error</li>
+                }
+            </ul>
+        </div>
+    }
+</div>
+
+
+@code {
+    private Popup userModal;
+    private Popup zoneModal;
+    private UserDTO? user;
+    private ZoneDTO? zone;
+    private IEnumerable<UserDTO>? users;
+    private IEnumerable<UserDTO>? filteredUsers;
+    private IEnumerable<ZoneDTO>? zones;
+    private IEnumerable<ZoneDTO>? filteredZones;
+    private int? userWeekTaskListsCount;
+    private Dictionary<int, string> siteNames = new();
+
+    private string userSearchTerm = "";
+    private string zoneSearchTerm = "";
+    private DateTime taskListDate = DateTime.Today;
+    private List<EmployeeTaskDTO> tasks = new();
+    private IEnumerable<CategoryDTO>? categories;
+    private bool isLoading = false;
+    private string message = "";
+    private bool isSuccess = false;
+    private List<string> validationErrors = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUsers();
+        await LoadZones();
+        await LoadCategories();
+        AddTask();
+    }
+
+    private async Task ShowUserModal()
+    {
+        await LoadUsers();
+        await userModal.ShowAsync();
+    }
+
+    private async Task ShowZoneModal()
+    {
+        await LoadZones();
+        await zoneModal.ShowAsync();
+    }
+
+    private async Task LoadUsers()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            users = await client.GetFromJsonAsync<IEnumerable<UserDTO>>("api/v1/user/byrole?role=Medewerker");
+            filteredUsers = users;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden gebruikers: {ex.Message}");
+            users = Enumerable.Empty<UserDTO>();
+            filteredUsers = users;
+        }
+    }
+
+    private async Task LoadUserWeekTaskListCount()
+    {
+        if (user == null || user.Id == 0)
+        {
+            userWeekTaskListsCount = null;
+            return;
+        }
+
+        var client = ClientFactory.CreateClient("API");
+
+        try
+        {
+            userWeekTaskListsCount =
+                await client.GetFromJsonAsync<int>(
+                    $"api/v1/tasklist/countbyuserweek?userId={user.Id}&date={taskListDate:yyyy-MM-dd}"
+                );
+            Console.WriteLine("aantal deze week: " + userWeekTaskListsCount);
+        }
+        catch
+        {
+            userWeekTaskListsCount = null;
+        }
+    }
+
+    private async Task LoadZones()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            var activeSites = await client.GetFromJsonAsync<IEnumerable<NurserySiteDTO>>("api/v1/nurserysite?pageNr=1&pageSize=10&isArchived=false");
+            siteNames = activeSites?.ToDictionary(s => s.Id, s => s.Name) ?? new Dictionary<int, string>();
+            var activeSiteIds = activeSites?.Select(s => s.Id).ToHashSet() ?? new HashSet<int>();
+
+            var allZones = await client.GetFromJsonAsync<IEnumerable<ZoneDTO>>("api/v1/zone?pageNr=1&pageSize=10");
+            zones = allZones?.Where(z => activeSiteIds.Contains(z.NurserySiteId)).ToList() ?? Enumerable.Empty<ZoneDTO>();
+            filteredZones = zones;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden van zones: {ex.Message}");
+            zones = Enumerable.Empty<ZoneDTO>();
+            filteredZones = zones;
+        }
+    }
+
+    private async Task LoadCategories()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            categories = await client.GetFromJsonAsync<IEnumerable<CategoryDTO>>(
+                "api/v1/category?pageNr=1&pageSize=50"
+            );
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Error loading categories: " + ex.Message);
+            categories = Enumerable.Empty<CategoryDTO>();
+        }
+    }
+
+
+    private string UserSearchTerm
+    {
+        get => userSearchTerm;
+        set { userSearchTerm = value; FilterUsers(); }
+    }
+
+    private string ZoneSearchTerm
+    {
+        get => zoneSearchTerm;
+        set { zoneSearchTerm = value; FilterZones(); }
+    }
+
+    private void FilterUsers()
+    {
+        filteredUsers = string.IsNullOrWhiteSpace(userSearchTerm)
+            ? users
+            : users?.Where(u => u.Email.Contains(userSearchTerm, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private void FilterZones()
+    {
+        filteredZones = string.IsNullOrWhiteSpace(zoneSearchTerm)
+            ? zones
+            : zones?.Where(z => z.Code.Contains(zoneSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                                (siteNames.TryGetValue(z.NurserySiteId, out var name) && name.Contains(zoneSearchTerm, StringComparison.OrdinalIgnoreCase)))
+                    .ToList();
+    }
+
+    private async Task SetUserFromList(UserDTO selectedUser)
+    {
+        user = selectedUser;
+        await userModal.HideAsync();
+        await LoadUserWeekTaskListCount();
+    }
+
+    private async Task SetZoneFromList(ZoneDTO selectedZone)
+    {
+        zone = selectedZone;
+        await zoneModal.HideAsync();
+    }
+
+    private async Task<bool> ValidateForm()
+    {
+        var client = ClientFactory.CreateClient("API");
+        validationErrors.Clear();
+
+        if (zone == null)
+            validationErrors.Add("Er moet een zone worden gekozen.");
+
+        if (tasks == null || tasks.Count == 0)
+            validationErrors.Add("Er moet minstens één taak aanwezig zijn.");
+
+        for (int i = 0; i < tasks.Count; i++)
+        {
+            var task = tasks[i];
+
+            if (string.IsNullOrWhiteSpace(task.Description))
+                validationErrors.Add($"Taak {i + 1}: Beschrijving is verplicht.");
+
+            if (task.PlannedDuration <= 0)
+                validationErrors.Add($"Taak {i + 1}: Verwachte duur moet groter zijn dan 0.");
+
+            if (task.PlannedStartTime == default)
+                validationErrors.Add($"Taak {i + 1}: Geplande starttijd is verplicht.");
+
+            if (task.CategoryId == 0 || task.CategoryId == null)
+                validationErrors.Add($"Taak {i + 1}: Categorie is verplicht");
+        }
+        await LoadUserWeekTaskListCount();
+        if (userWeekTaskListsCount >= 5)
+            validationErrors.Add("Deze medewerker heeft al 5 takenlijsten toegewezen gekregen deze week.");
+
+        if (HasOverlappingTasks())
+            validationErrors.Add("Er zijn overlappende taken.");
+
+        return !validationErrors.Any();
+    }
+
+    private void AddTask()
+    {
+        if (tasks.Count >= 4)
+        {
+            message = "Je kunt maximaal 4 taken toevoegen aan een takenlijst.";
+            isSuccess = false;
+            return;
+        }
+
+        tasks.Add(new EmployeeTaskDTO
+        {
+            Description = "",
+            PlannedDuration = 1,
+            PlannedStartTime = DateTime.Now,
+            StartTime = null,
+            StopTime = null,
+            Order = tasks.Count + 1,
+            CategoryId = null
+        });
+
+        message = "";
+    }
+
+    private void RemoveTask(int index)
+    {
+        if (tasks.Count > 1)
+        {
+            tasks.RemoveAt(index);
+            for (int i = 0; i < tasks.Count; i++)
+            {
+                tasks[i].Order = i + 1;
+            }
+            message = "";
+        }
+        else
+        {
+            message = "Een takenlijst heeft minstens 1 taak nodig";
+        }
+    }
+
+    private async Task CreateTaskList()
+    {
+        if (!await ValidateForm())
+        {
+            isSuccess = false;
+            return;
+        }
+
+        isLoading = true;
+        message = "";
+
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            var command = new AddTaskListCommand
+            {
+                TaskList = new TaskListDTO
+                {
+                    Date = taskListDate,
+                    UserId = user?.Id,
+                    ZoneId = zone?.Id
+                },
+                Tasks = tasks
+            };
+
+            var response = await client.PostAsJsonAsync("api/v1/TaskList", command);
+
+            if (response.IsSuccessStatusCode)
+            {
+                isSuccess = true;
+                await Task.Delay(1500);
+                Navigation.NavigateTo("/ManageTaskList");
+            }
+            else
+            {
+                var apiError = await response.Content.ReadFromJsonAsync<ApiError>();
+                if (apiError != null && !string.IsNullOrWhiteSpace(apiError.Message))
+                {
+                    var cleaned = ExtractValidationMessage(apiError.Message);
+                    validationErrors.Clear();
+                    validationErrors.Add(cleaned);
+                    message = "";
+                }
+                else
+                {
+                    validationErrors.Clear();
+                    validationErrors.Add("Er is een onbekende fout opgetreden.");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            message = $"Fout: {ex.Message}";
+            isSuccess = false;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private bool HasOverlappingTasks()
+    {
+        if (tasks.Count <= 1) return false;
+        var sorted = tasks.OrderBy(t => t.PlannedStartTime.TimeOfDay).ToList();
+        for (int i = 0; i < sorted.Count - 1; i++)
+        {
+            var currentEnd = (int)(sorted[i].PlannedStartTime.TimeOfDay.TotalMinutes + sorted[i].PlannedDuration * 60);
+            var nextStart = (int)sorted[i + 1].PlannedStartTime.TimeOfDay.TotalMinutes;
+            if (nextStart < currentEnd) return true;
+        }
+        return false;
+    }
+
+    private string FormatZone(ZoneDTO z)
+    {
+        return siteNames.TryGetValue(z.NurserySiteId, out var name) ? $"{z.Code} - {name}" : z.Code;
+    }
+}
+
+@code{
+    private string ExtractValidationMessage(string raw)
+    {
+        if (raw.Contains("TaskList.UserId:"))
+        {
+            var split = raw.Split("TaskList.UserId:", StringSplitOptions.RemoveEmptyEntries);
+            if (split.Length > 1)
+            {
+                var cleaned = split[1]
+                    .Replace("Severity: Error", "")
+                    .Replace("--", "")
+                    .Trim();
+                return cleaned;
+            }
+        }
+
+        if (raw.Contains("UserId:"))
+        {
+            var split = raw.Split("UserId:", StringSplitOptions.RemoveEmptyEntries);
+            if (split.Length > 1)
+            {
+                var cleaned = split[1]
+                    .Replace("Severity: Error", "")
+                    .Replace("--", "")
+                    .Trim();
+                return cleaned;
+            }
+        }
+
+        var fallback = raw
+            .Replace("Validation failed:", "")
+            .Replace("Severity: Error", "")
+            .Replace("--", "")
+            .Trim();
+        return fallback;
+    }
+}

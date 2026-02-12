@@ -1,0 +1,315 @@
+﻿@page "/ManageCategory"
+@using AP.BTP.Application.CQRS.Categories
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager NavigationManager
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+    <div>
+        <div class="fw-semibold">Beheer Categorieën</div>
+        <small class="text-muted">Bekijk en beheer bestaande categorieën</small>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+        <select class="form-select form-select-sm w-auto" value="@archiveFilter" @onchange="OnArchiveFilterChanged">
+            <option value="false">Niet gearchiveerd</option>
+            <option value="true">Gearchiveerd</option>
+        </select>
+        <button type="button" class="btn btp-primary" @onclick='() => NavigationManager.NavigateTo("AddCategory")'>
+            <span class="bi bi-plus-lg"></span> Nieuwe Categorie
+        </button>
+    </div>
+</div>
+
+@if (categories == null)
+{
+    <div class="p-4 text-center text-muted">
+        <div class="spinner-border spinner-border-sm me-2"></div>
+        Categorieën laden...
+    </div>
+}
+else if (!categories.Any())
+{
+    <div class="p-4 text-center text-muted">
+        <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+        Geen categorieën gevonden.
+    </div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table align-middle mb-0 slidein-animation">
+            <thead class="table-light border-bottom border-1">
+                <tr>
+                    <th class="ps-4">#</th>
+                    <th>Naam</th>
+                    <th>Kleur</th>
+                    <th class="text-end pe-3">Acties</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var category in categories)
+                {
+                    <tr class="border-bottom">
+                        <td class="ps-4 text-muted">@category.Id</td>
+
+                        <td class="fw-semibold">@category.Name</td>
+
+                        <td>
+                            <span class="px-2 py-1 rounded"
+                                  style="background:@category.Color;
+                     color:@GetTextColor(category.Color);
+                     border:1px solid #ccc;">
+                                @category.Color
+                            </span>
+
+                        </td>
+
+                        <td class="text-end pe-3">
+
+                            <button class="btn btn-sm" title="Edit" @onclick="() => GoToEditCategory(category.Id)">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+
+                            @if (archiveFilter == "false")  @* NIET gearchiveerd: enkel archiveren *@
+                            {
+                                <button type="button"
+                                        class="btn btn-link text-danger p-0"
+                                        title="Archiveren"
+                                        @onclick="() => UpdateCategoryArchiveState(category.Id, category.IsArchived)">
+                                    <i class="bi bi-archive"></i>
+                                </button>
+                            }
+                            else
+                            {
+                                <button type="button"
+                                        class="btn btn-link text-primary p-0 me-2"
+                                        title="Dearchiveren"
+                                        @onclick="() => UpdateCategoryArchiveState(category.Id, category.IsArchived)">
+                                    <i class="bi bi-arrow-counterclockwise"></i>
+                                </button>
+
+                                <button type="button"
+                                        class="btn btn-link text-danger p-0"
+                                        title="Verwijderen"
+                                        @onclick='() => OpenDeleteModal(category.Id)'>
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            }
+
+                        </td>
+
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<Popup @ref="archiveModal"
+       Title="Categorie archiveren"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        @if (!isUnarchiveAction)
+        {
+            <p class="mb-2">Weet je zeker dat je deze categorie wilt archiveren?</p>
+        }
+        else
+        {
+            <p class="mb-2">Weet je zeker dat je deze categorie wilt dearchiveren?</p>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(archiveError))
+        {
+            <div class="alert alert-danger mt-2" role="alert">@archiveError</div>
+        }
+    </BodyTemplate>
+
+    <FooterTemplate>
+        <button class="btn btn-secondary me-2" @onclick="CloseArchiveModal">Annuleren</button>
+        <button class="btn btn-danger" @onclick="ConfirmArchive">
+            @(isUnarchiveAction ? "Dearchiveren" : "Archiveren")
+        </button>
+    </FooterTemplate>
+</Popup>
+
+<Popup @ref="deleteModal"
+       Title="Categorie verwijderen"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        <p class="mb-2">Weet je zeker dat je deze categorie wilt verwijderen?</p>
+    </BodyTemplate>
+
+    <FooterTemplate>
+        <button class="btn btn-secondary me-2" @onclick="CloseDeleteModal">Annuleren</button>
+        <button class="btn btn-danger" @onclick='() => DeleteCategory(categoryToDeleteId)'>
+            Verwijderen
+        </button>
+    </FooterTemplate>
+</Popup>
+
+@code {
+    private IEnumerable<CategoryDTO>? categories;
+    private string archiveFilter = "false";
+    private bool isUnarchiveAction = false;
+    private Popup archiveModal;
+    private Popup deleteModal;
+    private int? pendingArchiveId;
+    private int categoryToDeleteId;
+    private string archiveError = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCategories();
+    }
+
+    private async Task LoadCategories()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            categories = await client.GetFromJsonAsync<IEnumerable<CategoryDTO>>(
+                $"api/v1/category?isArchived={archiveFilter}"
+            );
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Categorieën konden niet geladen worden: {ex.Message}");
+        }
+    }
+
+    private async Task DeleteCategory(int id)
+    {
+        var client = ClientFactory.CreateClient("API");
+
+        try
+        {
+            var response = await client.DeleteAsync($"api/v1/Category/{id}");
+
+            if (response.IsSuccessStatusCode)
+            {
+                await CloseDeleteModal();
+                await LoadCategories();
+                return;
+            }
+
+            Console.WriteLine("Verwijderen mislukt");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Verwijderen mislukt: {ex.Message}");
+        }
+    }
+    private async Task OnArchiveFilterChanged(ChangeEventArgs args)
+    {
+        archiveFilter = args?.Value?.ToString() ?? "false";
+        await LoadCategories();
+    }
+
+    private void GoToEditCategory(int id)
+    {
+        NavigationManager.NavigateTo($"/EditCategory/{id}");
+    }
+
+    private async Task UpdateCategoryArchiveState(int id, bool currentArchiveState)
+    {
+        pendingArchiveId = id;
+        archiveError = string.Empty;
+        isUnarchiveAction = currentArchiveState;
+        if (archiveModal != null)
+            await archiveModal.ShowAsync();
+    }
+
+    private async Task CloseArchiveModal()
+    {
+        pendingArchiveId = null;
+        archiveError = string.Empty;
+        if (archiveModal != null)
+            await archiveModal.HideAsync();
+    }
+    private async Task CloseDeleteModal()
+    {
+        await deleteModal.HideAsync();
+    }
+
+    private async Task OpenDeleteModal(int categoryId)
+    {
+        categoryToDeleteId = categoryId;
+        await deleteModal.ShowAsync();
+    }
+
+    private async Task ConfirmArchive()
+    {
+        if (!pendingArchiveId.HasValue) return;
+
+        var client = ClientFactory.CreateClient("API");
+
+        try
+        {
+            var response = await client.PutAsync($"api/v1/Category/{pendingArchiveId.Value}/archive", null);
+            if (response.IsSuccessStatusCode)
+            {
+                await CloseArchiveModal();
+                await LoadCategories();
+                return;
+            }
+
+            var fallback = "Archiveren mislukt.";
+            try
+            {
+                var apiResult = await response.Content.ReadFromJsonAsync<ApiResult>();
+                if (!string.IsNullOrWhiteSpace(apiResult?.Message))
+                    fallback = apiResult.Message;
+            }
+            catch
+            {
+                var raw = await response.Content.ReadAsStringAsync();
+                if (!string.IsNullOrWhiteSpace(raw))
+                    fallback = raw;
+            }
+
+            archiveError = fallback;
+        }
+        catch (Exception ex)
+        {
+            archiveError = $"Archiveren mislukt: {ex.Message}";
+        }
+    }
+
+    private string GetTextColor(string hexColor)
+    {
+        if (string.IsNullOrWhiteSpace(hexColor))
+            return "black";
+
+        // Remove leading # if present
+        hexColor = hexColor.Replace("#", "");
+
+        if (hexColor.Length != 6)
+            return "black";
+
+        try
+        {
+            int r = Convert.ToInt32(hexColor.Substring(0, 2), 16);
+            int g = Convert.ToInt32(hexColor.Substring(2, 2), 16);
+            int b = Convert.ToInt32(hexColor.Substring(4, 2), 16);
+
+            // Perceived luminance formula
+            double luminance = (0.299 * r + 0.587 * g + 0.114 * b);
+
+            // If dark → use white text, else → black text
+            return luminance < 128 ? "white" : "black";
+        }
+        catch
+        {
+            return "black";
+        }
+    }
+
+
+    private class ApiResult
+    {
+        public bool Succeeded { get; set; }
+        public string Message { get; set; }
+    }
+}

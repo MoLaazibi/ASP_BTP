@@ -1,0 +1,201 @@
+﻿@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@using System.Security.Claims
+@using AP.BTP.Application.CQRS.Users
+@using Microsoft.AspNetCore.Components.Authorization
+@attribute [Authorize(Roles = "Admin")]
+<div class="dashboard-container">
+    <!-- Welcome Header -->
+    <div class="dashboard-header">
+        <div class="slidein-animation2 welcome-content">
+            <h1 class="dashboard-title">Welkom @displayName bij het Dashboard</h1>
+            <p class="dashboard-subtitle">Overzicht van administrator statistieken</p>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="stats-grid slidein-animation">
+        <!-- Users Card -->
+        <div class="stat-card stat-card-users clickable" @onclick="GoToUserList">
+            <div class="stat-card-content">
+                <div class="stat-icon-wrapper stat-icon-users">
+                    <i class="bi bi-people-fill stat-icon"></i>
+                </div>
+                <div class="stat-info">
+                    <h3 class="stat-label">Gebruikers</h3>
+                    @if (isLoading)
+                    {
+                        <div class="stat-loading">
+                            <div class="spinner-border spinner-border-sm me-2"></div>
+                            <span>Laden...</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="stat-value">@userCount</div>
+                        <p class="stat-description">Totaal aantal geregistreerde gebruikers</p>
+                    }
+                </div>
+            </div>
+            <div class="stat-card-decoration"></div>
+        </div>
+
+        <!-- Nursery Site Card -->
+        <div class="stat-card stat-card-nurserysite clickable" @onclick="GoToNurserySite">
+            <div class="stat-card-content">
+                <div class="stat-icon-wrapper stat-icon-nurserysite">
+                    <i class="bi bi-geo-alt stat-icon"></i>
+                </div>
+                <div class="stat-info">
+                    <h3 class="stat-label">Kweeksites</h3>
+                    @if (isLoading)
+                    {
+                        <div class="stat-loading">
+                            <div class="spinner-border spinner-border-sm me-2"></div>
+                            <span>Laden...</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="stat-value">@NurserySiteCount</div>
+                        <p class="stat-description">Totaal aantal kweeksites</p>
+                    }
+                </div>
+            </div>
+            <div class="stat-card-decoration"></div>
+        </div>
+    </div>
+
+    <!-- Notification for users without roles -->
+    @if (!isLoading && usersWithoutRolesCount > 0)
+    {
+        <div class="notification-alert">
+            <div class="notification-content">
+                <div class="notification-icon">
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                </div>
+                <div class="notification-text">
+                    <strong>Er @(usersWithoutRolesCount == 1 ? "is" : "zijn") @usersWithoutRolesCount gebruiker@(usersWithoutRolesCount == 1 ? "" : "s") die nog geen rol @(usersWithoutRolesCount == 1 ? "heeft" : "hebben")</strong>
+                </div>
+                <button class="notification-btn" @onclick="GoToUserList">
+                    <span>Naar Gebruikers</span>
+                    <i class="bi bi-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private int userCount = 0;
+    private int NurserySiteCount = 0;
+    private int usersWithoutRolesCount = 0;
+    private bool isLoading = true;
+    private string displayName = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadCurrentUser();
+        await LoadStatistics();
+    }
+
+    private UserDTO? user;
+
+    private async Task LoadCurrentUser()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            var response = await client.GetAsync("api/v1/User/me");
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                await FallbackFromClaims();
+                return;
+            }
+
+            response.EnsureSuccessStatusCode();
+            user = await response.Content.ReadFromJsonAsync<UserDTO>();
+            var nameCandidate = $"{user?.FirstName} {user?.LastName}".Trim();
+            if (string.IsNullOrWhiteSpace(nameCandidate))
+            {
+                displayName = user?.Email ?? string.Empty;
+            }
+            else
+            {
+                displayName = nameCandidate;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Kon huidige gebruiker niet laden: {ex.Message}");
+            await FallbackFromClaims();
+        }
+    }
+
+    private async Task FallbackFromClaims()
+    {
+        try
+        {
+            var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+            var principal = authState.User;
+            if (principal?.Identity?.IsAuthenticated == true)
+            {
+                var given = principal.FindFirst(ClaimTypes.GivenName)?.Value;
+                var surname = principal.FindFirst(ClaimTypes.Surname)?.Value;
+                var name = principal.Identity?.Name;
+                var email = principal.FindFirst(ClaimTypes.Email)?.Value;
+
+                var fromNames = $"{given} {surname}".Trim();
+                if (!string.IsNullOrWhiteSpace(fromNames))
+                    displayName = fromNames;
+                else if (!string.IsNullOrWhiteSpace(name))
+                    displayName = name;
+                else if (!string.IsNullOrWhiteSpace(email))
+                    displayName = email;
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"Fallback gebruiker laden mislukt: {e.Message}");
+        }
+    }
+
+    private async Task LoadStatistics()
+    {
+        isLoading = true;
+        var client = ClientFactory.CreateClient("API");
+        
+        try
+        {
+            // Load user count
+            userCount = await client.GetFromJsonAsync<int>("api/v1/User/count");
+            
+            // Load Nursery Site count
+            NurserySiteCount = await client.GetFromJsonAsync<int>("api/v1/NurserySite/count");
+            
+            // Load all users to check for users without roles
+            var users = await client.GetFromJsonAsync<IEnumerable<UserDTO>>("api/v1/User?pageNr=1&pageSize=1000");
+            usersWithoutRolesCount = users?.Count(u => u.Roles == null || !u.Roles.Any()) ?? 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden statistieken: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void GoToUserList()
+    {
+        Navigation.NavigateTo("/UserList");
+    }
+
+    private void GoToNurserySite()
+    {
+        Navigation.NavigateTo("/ManageNurserySite");
+    }
+}

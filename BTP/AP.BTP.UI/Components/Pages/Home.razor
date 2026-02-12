@@ -1,0 +1,18 @@
+@page "/"
+@using System.Security.Claims
+@using Microsoft.AspNetCore.Components.Authorization
+@using AP.BTP.Application.CQRS.Users
+@using AP.BTP.Application
+
+@inject IHttpClientFactory ClientFactory
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@inject NavigationManager Navigation
+
+<AuthorizeView Roles="Admin">
+    <Authorized>
+        <DashboardAdministrator></DashboardAdministrator>
+    </Authorized>
+    <NotAuthorized>
+        <DashboardManager></DashboardManager>
+    </NotAuthorized>
+</AuthorizeView>

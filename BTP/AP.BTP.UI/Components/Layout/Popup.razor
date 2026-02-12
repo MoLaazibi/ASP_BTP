@@ -1,0 +1,40 @@
+﻿<Modal @ref="modal"
+       Title="@Title"
+       IsVerticallyCentered="@IsVerticallyCentered"
+       Size="@Size"
+       IsScrollable="@IsScrollable">
+
+    <BodyTemplate>
+        @if (BodyTemplate is not null)
+        {
+            @BodyTemplate
+        }
+        else
+        {
+            <p>@BodyText</p>
+        }
+    </BodyTemplate>
+
+    <FooterTemplate>
+        @if (FooterTemplate is not null)
+        {
+            @FooterTemplate
+        }
+    </FooterTemplate>
+</Modal>
+
+@code {
+    private Modal modal = null!;
+
+    [Parameter] public string Title { get; set; } = "Default Title";
+    [Parameter] public string BodyText { get; set; } = "Default body text.";
+    [Parameter] public bool IsVerticallyCentered { get; set; } = true;
+    [Parameter] public ModalSize Size { get; set; } = ModalSize.Regular;
+    [Parameter] public bool IsScrollable { get; set; } = false;
+
+    [Parameter] public RenderFragment? BodyTemplate { get; set; }
+    [Parameter] public RenderFragment? FooterTemplate { get; set; }
+
+    public async Task ShowAsync() => await modal.ShowAsync();
+    public async Task HideAsync() => await modal.HideAsync();
+}

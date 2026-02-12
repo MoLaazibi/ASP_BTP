@@ -1,0 +1,118 @@
+services:
+  frontend:
+    image: $CI_REGISTRY_IMAGE/btp-ui:latest
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=${ASPNETCORE_URLS}
+      - Api__BaseUrl=http://backend:8081
+      - Api__PublicBaseUrl=http://10.156.2.6
+      # Auth0 configuration - override appsettings if needed
+      - Auth0__Domain=dev-d8u577gda87j6h81.us.auth0.com
+      - Auth0__ClientId=5W72pwYdJlAFmyp4Y6IPgxlXH5qBzo4e
+      - Auth0__ClientSecret=H1s0u3UN-xGR77aHcpU-mX8Yqfv1a7v2TS6_2yxw9aKbR9f-GKXlwpHMa-3TA3Jz
+      - Auth0__Audience=https://btp.api
+    volumes:
+      - dataprotection-keys:/app/dataprotection-keys
+    networks:
+      - front
+      - back
+      - proxy
+    depends_on:
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend-router.rule=Host(`10.156.2.6`)"
+      - "traefik.http.routers.frontend-router.priority=10"
+      - "traefik.http.routers.frontend-router.entrypoints=web"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
+      - "traefik.docker.network=traefik"
+
+  mobile:
+    image: $CI_REGISTRY_IMAGE/btp-mobile:latest
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+    networks:
+      - front
+      - back
+      - proxy
+    depends_on:
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mobile-router.rule=Host(`10.156.2.6`) && PathPrefix(`/m`)"
+      - "traefik.http.routers.mobile-router.priority=1000"
+      - "traefik.http.routers.mobile-router.entrypoints=web"
+      - "traefik.http.middlewares.mobile-strip.stripprefix.prefixes=/m"
+      - "traefik.http.routers.mobile-router.middlewares=mobile-strip"
+      - "traefik.http.services.mobile.loadbalancer.server.port=80"
+      - "traefik.docker.network=traefik"
+
+  backend:
+    image: $CI_REGISTRY_IMAGE/btp-api:latest
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8081
+      - ConnectionStrings__BTPdb=Server=sqlserver,1433;Database=BTPdb;User Id=sa;Password=YourStrong@Passw0rd;TrustServerCertificate=True;MultipleActiveResultSets=true
+      - Auth0__Domain=dev-d8u577gda87j6h81.us.auth0.com
+      - Auth0__ClientId=5W72pwYdJlAFmyp4Y6IPgxlXH5qBzo4e
+      - Auth0__ClientSecret=H1s0u3UN-xGR77aHcpU-mX8Yqfv1a7v2TS6_2yxw9aKbR9f-GKXlwpHMa-3TA3Jz
+      - Auth0__Audience=https://btp.api
+    volumes:
+      - dataprotection-keys:/app/dataprotection-keys
+    networks:
+      - front
+      - back
+      - proxy
+    ports:
+      - "5000:8081"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api-router.rule=Host(`10.156.2.6`) && PathPrefix(`/api/v1`)"
+      - "traefik.http.routers.api-router.priority=100"
+      - "traefik.http.routers.api-router.entrypoints=web"
+      - "traefik.http.routers.auth-router.rule=Host(`10.156.2.6`) && PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.auth-router.priority=150"
+      - "traefik.http.routers.auth-router.entrypoints=web"
+      - "traefik.http.routers.swagger-router.rule=Host(`10.156.2.6`) && PathPrefix(`/swagger`)"
+      - "traefik.http.routers.swagger-router.priority=200"
+      - "traefik.http.routers.swagger-router.entrypoints=web"
+      - "traefik.http.routers.files-router.rule=Host(`10.156.2.6`) && PathPrefix(`/Files`)"
+      - "traefik.http.routers.files-router.priority=300"
+      - "traefik.http.routers.files-router.entrypoints=web"
+      - "traefik.http.services.backend.loadbalancer.server.port=8081"
+      - "traefik.docker.network=traefik"
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=${ACCEPT_EULA}
+      - SA_PASSWORD=${SA_PASSWORD}
+      - MSSQL_PID=${MSSQL_PID}
+    volumes:
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P ${SA_PASSWORD} -Q 'SELECT 1' -C"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - back
+    ports:
+      - "1433:1433"
+    labels:
+      - "traefik.enable=false"
+
+volumes:
+  sqlserver-data:
+  dataprotection-keys:
+
+networks:
+  front:
+  back:
+  proxy:
+    name: traefik
+    external: true

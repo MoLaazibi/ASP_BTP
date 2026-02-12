@@ -1,0 +1,22 @@
+@page "/logout"
+@inject IHttpClientFactory ClientFactory
+@inject AP.BTP.MobileUI.Services.Auth.MobileAuthenticationStateProvider AuthProvider
+@inject NavigationManager Nav
+
+<div class="container" style="padding: 1rem;">
+    <p>Afmelden...</p>
+}</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            await client.PostAsync("/api/auth/logout", null);
+        }
+        catch { }
+        await AuthProvider.SignOutAsync();
+        Nav.NavigateTo("login", true);
+    }
+}

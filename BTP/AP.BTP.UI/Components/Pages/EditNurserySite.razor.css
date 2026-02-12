@@ -1,0 +1,259 @@
+﻿/* ===== Algemene stijl consistent met teamgenoot ===== */
+html, body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color: #111827;
+    background-color: #f8fafb;
+}
+
+.page-container {
+    background-color: #f8fafb;
+    padding: 2rem;
+}
+
+h1 {
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: #0f172a;
+    margin-bottom: 1rem;
+}
+
+h2 {
+    font-size: 1.25rem;
+    font-weight: 500;
+    color: #0f172a;
+    margin-bottom: 0.75rem;
+}
+
+/* ===== Grid layout voor formulier en afbeelding ===== */
+.page-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+    margin-top: 1rem;
+}
+
+/* ===== Cardachtige secties ===== */
+section {
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+/* ===== Formuliervelden ===== */
+form label {
+    display: block;
+    font-weight: 500;
+    color: #111827;
+    margin-top: 1rem;
+    margin-bottom: 0.35rem;
+}
+
+form input[type="text"],
+form input[type="number"] {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
+    color: #111827;
+}
+
+    form input[type="text"]:focus,
+    form input[type="number"]:focus {
+        outline: none;
+        border-color: #059669;
+        box-shadow: 0 0 0 0.1rem #05966940;
+    }
+
+/* ===== Drop area upload ===== */
+.dropArea {
+    border: 2px dashed #d1d5db;
+    background-color: #f9fafb;
+    color: #6b7280;
+    border-radius: 12px;
+    padding: 2rem 1rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    min-height: 180px;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    cursor: pointer;
+    position: relative;
+}
+
+    .dropArea:hover {
+        background-color: #f3f4f6;
+        border-color: #9ca3af;
+    }
+
+.dropAreaDrug {
+    background-color: #e5e7eb;
+    border-color: #059669;
+}
+
+.dropArea input[type=file] {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+/* ===== Buttons ===== */
+.userButton {
+    margin-top: 1.5rem;
+    color: #ffffff;
+    background-color: #059669;
+    border: 1px solid #059669;
+    border-radius: 8px;
+    padding: 0.6rem 1.25rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+    button:hover,
+    input[type="submit"]:hover {
+        background-color: #047857;
+        border-color: #047857;
+    }
+
+/* ===== Validatie- en foutmeldingen ===== */
+p {
+    color: #dc2626;
+    font-size: 0.9rem;
+    margin-top: 0.5rem;
+}
+
+/* ===== Zones sectie ===== */
+.zones {
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1.5rem 2rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    margin-top: 1.5rem;
+    width: 66%;
+}
+
+/* ===== Header (titel + knop rechtsboven) ===== */
+.zones-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.25rem;
+}
+
+    .zones-header h2 {
+        font-size: 1.25rem;
+        font-weight: 500;
+        color: #0f172a;
+        margin: 0;
+    }
+
+/* ===== Voeg Zone Toe knop ===== */
+.add-zone-btn {
+    background-color: #059669;
+    color: #ffffff;
+    border: 1px solid #059669;
+    border-radius: 8px;
+    padding: 0.5rem 1.25rem;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+    .add-zone-btn:hover {
+        background-color: #047857;
+        border-color: #047857;
+    }
+
+/* ===== Zone blok: 2 rijen, 3 kolommen ===== */
+.zone-block {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr); /* 3 kolommen */
+    grid-template-rows: auto auto; /* 2 rijen */
+    gap: 1rem 1.5rem;
+    align-items: start;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    background-color: #f9fafb;
+    margin-bottom: 1rem;
+}
+
+    /* ===== Titel en deleteknop (eerste rij) ===== */
+    .zone-block .fw-semibold {
+        grid-column: 1 / 3;
+        font-weight: 600;
+        font-size: 1rem;
+        color: #111827;
+    }
+
+    .zone-block .remove-zone-btn {
+        all: unset;
+        grid-column: 3 / 4;
+        justify-self: end;
+        align-self: start;
+        cursor: pointer;
+        color: #dc2626;
+        font-size: 1.1rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: color 0.2s ease;
+        margin-top: 0.25rem;
+    }
+
+        .zone-block .remove-zone-btn:hover {
+            color: #b91c1c;
+        }
+
+    /* ===== Formulier-velden (tweede rij) ===== */
+    .zone-block .form-row {
+        grid-column: 1 / 4;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.25rem;
+        align-items: start;
+    }
+
+.form-group label {
+    display: block;
+    font-weight: 500;
+    color: #111827;
+    margin-bottom: 0.35rem;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"] {
+    width: 100%;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.95rem;
+    color: #111827;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: #059669;
+    box-shadow: 0 0 0 0.1rem #05966940;
+}
+
+.current-image {
+    width: 100%;
+    max-width: 350px;
+    height: 250px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    display: block;
+    margin-top: 1rem;
+}

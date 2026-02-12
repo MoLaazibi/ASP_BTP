@@ -1,0 +1,466 @@
+@page "/ManageTreeTypes"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager NavigationManager
+@using AP.BTP.Application.CQRS.TreeTypes
+@using AP.BTP.UI.Components.Layout
+@using System.Net.Http.Json
+
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <AuthorizeView Roles="Admin,Verantwoordelijke">
+            <Authorized>
+                <div>
+                    <div class="fw-semibold">Beheer boomsoorten</div>
+                    <small class="text-muted">Beheer alle boomsoorten</small>
+                </div>
+
+                <select class="form-select form-select-sm w-auto"
+                        value="@archiveFilter.ToString().ToLower()"
+                        @onchange="ArchiveFilterChanged">
+                    <option value="false">Niet gearchiveerd</option>
+                    <option value="true">Gearchiveerd</option>
+                </select>
+
+                <AuthorizeView Roles="Admin" Context="adminCreate">
+                    <button type="button" class="btn btp-primary" @onclick="GoToAddTreeType">
+                        <span class="bi bi-plus-lg"></span> Nieuwe boomsoort
+                    </button>
+                </AuthorizeView>
+            </Authorized>
+
+            <NotAuthorized>
+                <div>
+                    <div class="fw-semibold">Bekijk boomsoorten</div>
+                    <small class="text-muted">Overzicht van alle boomsoorten</small>
+                </div>
+            </NotAuthorized>
+        </AuthorizeView>
+    </div>
+
+    <!-- TreeType Cards -->
+    <div class="row g-4 slidein-animation">
+        @if (treeTypes == null)
+        {
+            <div class="col-12 text-center py-5">
+                <div class="spinner-border text-success"></div>
+                <p class="mt-3 text-muted">Boomsoorten laden...</p>
+            </div>
+        }
+        else if (!treeTypes.Any())
+        {
+            <div class="col-12 text-center py-5">
+                <i class="bi bi-inbox fs-1 text-muted d-block mb-3"></i>
+                <h5 class="text-muted">Geen boomsoorten gevonden</h5>
+            </div>
+        }
+        else
+        {
+            @foreach (var tree in treeTypes)
+            {
+                <div class="col-lg-4 col-md-6">
+                    <div class="card nursery-site-card h-100 shadow-sm">
+
+                        <!-- Tree Image -->
+                        <div class="card-img-top nursery-site-image position-relative"
+                             style="height: 250px; overflow: hidden; border-top-left-radius: .5rem; border-top-right-radius: .5rem;">
+                            @if (tree.TreeImages?.Count > 0)
+                            {
+                                <img src="@tree.TreeImages[imageIndices[tree.Id]].FileUrl"
+                                     class="img-fluid w-100"
+                                     style="object-fit: cover; height: 100%;" />
+
+                                <button type="button"
+                                        class="btn btn-dark btn-sm position-absolute"
+                                        style="border-radius: 50%; top: 50%; left: 10px; transform: translateY(-50%); opacity: .75;"
+                                        @onclick="() => PreviousImage(tree.Id)">
+                                    <i class="bi bi-chevron-left"></i>
+                                </button>
+
+                                <button type="button"
+                                        class="btn btn-dark btn-sm position-absolute"
+                                        style="border-radius: 50%; top: 50%; right: 10px; transform: translateY(-50%); opacity: .75;"
+                                        @onclick="() => NextImage(tree.Id)">
+                                    <i class="bi bi-chevron-right"></i>
+                                </button>
+                            }
+                            else
+                            {
+                                <div class="d-flex align-items-center justify-content-center"
+                                     style="height: 250px; background-color: #f8f9fa;">
+                                    <i class="bi bi-image fs-1 text-muted"></i>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Card Body -->
+                        <div class="card-body">
+                            <h5 class="card-title fw-bold mb-3">@tree.Name</h5>
+                            @if (!string.IsNullOrWhiteSpace(tree.Description))
+                            {
+                                <p class="text-muted small">@tree.Description</p>
+                            }
+                        </div>
+
+                        <!-- Card Footer -->
+                        <div class="card-footer bg-transparent border-0 pt-0">
+                            <div class="d-flex justify-content-end">
+                                <a class="btn btn-outline-success btn-sm me-2" href="/TreeType/@tree.Id">
+                                    <i class="bi bi-info-circle"></i>
+                                </a>
+
+                                <button class="btn btn-outline-success btn-sm me-2"
+                                        @onclick="() => OpenModal(tree)">
+                                    <i class="bi bi-eye"></i>
+                                </button>
+
+                                <AuthorizeView Roles="Admin">
+                                    <button class="btn btn-outline-primary btn-sm me-2"
+                                            @onclick="() => EditTreeType(tree.Id)">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                </AuthorizeView>
+
+                                <AuthorizeView Roles="Admin">
+                                    <button class="btn btn-outline-secondary btn-sm me-2"
+                                            @onclick="() => ToggleArchive(tree)">
+                                        <i class="bi bi-archive"></i>
+                                    </button>
+                                </AuthorizeView>
+
+                                <AuthorizeView Roles="Admin,Verantwoordelijke">
+                                    @if (tree.IsArchived && archiveFilter)
+                                    {
+                                        <button class="btn btn-outline-danger btn-sm"
+                                                @onclick="() => DeleteTreeType(tree)">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    }
+                                </AuthorizeView>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <!-- Modal -->
+    @if (selectedTreeType != null)
+    {
+        <div class="modal fade show d-block"
+             style="background-color: rgba(0,0,0,0.5);" tabindex="-1" @onclick="CloseModal">
+            <div class="modal-dialog modal-dialog-centered modal-lg" @onclick:stopPropagation="true">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">@selectedTreeType.Name</h5>
+                        <button class="btn-close" @onclick="CloseModal"></button>
+                    </div>
+
+                    <div class="modal-body text-center">
+                        @if (selectedTreeType.TreeImages?.Count > 0)
+                        {
+                            <img src="@selectedTreeType.TreeImages[imageIndices[selectedTreeType.Id]].FileUrl"
+                                 class="img-fluid" />
+                        }
+                        else
+                        {
+                            <div class="d-flex align-items-center justify-content-center"
+                                 style="height: 300px;">
+                                <i class="bi bi-image fs-1 text-muted"></i>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+
+    <!-- Pagination -->
+    @if (treeTypes?.Any() == true)
+    {
+        <div class="slidein-animation d-flex justify-content-center align-items-center mt-5">
+            <nav>
+                <ul class="pagination mb-0">
+                    <li class="page-item @(pageNr == 1 ? "disabled" : "")">
+                        <button class="page-link" @onclick="PreviousPage">
+                            <i class="bi bi-chevron-left"></i> Vorige
+                        </button>
+                    </li>
+
+                    <li class="page-item active">
+                        <span class="page-link">@pageNr</span>
+                    </li>
+
+                    <li class="page-item @(pageNr >= totalPages ? "disabled" : "")">
+                        <button class="page-link" @onclick="NextPage">
+                            Volgende <i class="bi bi-chevron-right"></i>
+                        </button>
+                    </li>
+                </ul>
+            </nav>
+        </div>
+    }
+</div>
+
+<Popup @ref="archiveBlockedModal"
+       Title="Archiveren niet mogelijk"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        <p class="mb-2">@archiveBlockedMessage</p>
+        <p class="text-muted small">Deze boomsoort is gekoppeld aan een zone en kan daarom niet worden gearchiveerd.</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <button class="btn btp-primary" @onclick="CloseArchiveBlockedModal">Ok</button>
+    </FooterTemplate>
+</Popup>
+
+<Popup @ref="deleteConfirmModal"
+       Title="Boomsoort verwijderen"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        <p class="mb-2">Weet je zeker dat je deze boomsoort definitief wilt verwijderen?</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <button class="btn btn-secondary me-2" @onclick="() => deleteConfirmModal?.HideAsync()">Annuleren</button>
+        <button class="btn btn-danger" @onclick="ConfirmDelete">Verwijderen</button>
+    </FooterTemplate>
+</Popup>
+
+<Popup @ref="deleteBlockedModal"
+       Title="Verwijderen niet mogelijk"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        <p class="mb-2">@deleteBlockedMessage</p>
+    </BodyTemplate>
+    <FooterTemplate>
+        <button class="btn btp-primary" @onclick="CloseDeleteBlockedModal">Ok</button>
+    </FooterTemplate>
+</Popup>
+
+@code {
+    private bool archiveFilter = false;
+    private List<TreeTypeDTO> treeTypes = new();
+    private int pageNr = 1;
+    private int pageSize = 6;
+    private int totalTreeTypes;
+    private int totalPages => (int)Math.Ceiling((double)totalTreeTypes / pageSize);
+    private TreeTypeDTO? selectedTreeType;
+    private Dictionary<int, int> imageIndices = new();
+    private Popup? archiveBlockedModal;
+    private string archiveBlockedMessage = string.Empty;
+    private Popup? deleteConfirmModal;
+    private Popup? deleteBlockedModal;
+    private string deleteBlockedMessage = string.Empty;
+    private int? pendingDeleteId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTreeTypes();
+    }
+
+    private async Task LoadTreeTypes()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            totalTreeTypes = await client.GetFromJsonAsync<int>(
+                $"api/v1/TreeType/count?isArchived={archiveFilter}");
+
+            var data = await client.GetFromJsonAsync<IEnumerable<TreeTypeDTO>>(
+                $"api/v1/TreeType/by-archive?isArchived={archiveFilter}&pageNr={pageNr}&pageSize={pageSize}");
+
+            treeTypes = data?.ToList() ?? new();
+
+            foreach (var tree in treeTypes)
+                if (!imageIndices.ContainsKey(tree.Id))
+                    imageIndices[tree.Id] = 0;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden boomsoorten: {ex.Message}");
+            treeTypes = new();
+            totalTreeTypes = 0;
+        }
+    }
+
+    private async Task ArchiveFilterChanged(ChangeEventArgs args)
+    {
+        if (bool.TryParse(args?.Value?.ToString(), out var parsed))
+        {
+            archiveFilter = parsed;
+            pageNr = 1;
+            await LoadTreeTypes();
+            StateHasChanged();
+        }
+    }
+
+    private async Task NextPage()
+    {
+        if (pageNr < totalPages)
+        {
+            pageNr++;
+            await LoadTreeTypes();
+        }
+    }
+
+    private async Task PreviousPage()
+    {
+        if (pageNr > 1)
+        {
+            pageNr--;
+            await LoadTreeTypes();
+        }
+    }
+
+    private void GoToAddTreeType()
+    {
+        NavigationManager.NavigateTo("/AddTreeType");
+    }
+
+    private void OpenModal(TreeTypeDTO tree) => selectedTreeType = tree;
+
+    private void CloseModal() => selectedTreeType = null;
+
+    private void EditTreeType(int id)
+        => NavigationManager.NavigateTo($"/EditTreeType/{id}");
+
+    private void NextImage(int treeId)
+    {
+        var tree = treeTypes.FirstOrDefault(t => t.Id == treeId);
+        if (tree?.TreeImages?.Count > 0)
+            imageIndices[treeId] = (imageIndices[treeId] + 1) % tree.TreeImages.Count;
+    }
+
+    private void PreviousImage(int treeId)
+    {
+        var tree = treeTypes.FirstOrDefault(t => t.Id == treeId);
+        if (tree?.TreeImages?.Count > 0)
+            imageIndices[treeId] =
+                (imageIndices[treeId] - 1 + tree.TreeImages.Count) % tree.TreeImages.Count;
+    }
+
+    private async Task ToggleArchive(TreeTypeDTO tree)
+    {
+        var client = ClientFactory.CreateClient("API");
+
+        var cmd = new EditTreeTypeArchivedCommand
+        {
+            Id = tree.Id,
+            IsArchived = !tree.IsArchived
+        };
+
+        var response = await client.PutAsJsonAsync("api/v1/TreeType/archive", cmd);
+        if (response.IsSuccessStatusCode)
+        {
+            await LoadTreeTypes();
+            return;
+        }
+
+        var fallbackMessage = "Deze boomsoort is gekoppeld aan een zone en kan niet worden gearchiveerd.";
+        try
+        {
+            var apiResult = await response.Content.ReadFromJsonAsync<ApiResult>();
+            if (!string.IsNullOrWhiteSpace(apiResult?.Message))
+                fallbackMessage = apiResult.Message;
+        }
+        catch
+        {
+            var raw = await response.Content.ReadAsStringAsync();
+            if (!string.IsNullOrWhiteSpace(raw))
+                fallbackMessage = raw;
+        }
+
+        await ShowArchiveBlockedModal(fallbackMessage);
+    }
+
+    private async Task ShowArchiveBlockedModal(string message)
+    {
+        archiveBlockedMessage = message;
+        if (archiveBlockedModal != null)
+            await archiveBlockedModal.ShowAsync();
+    }
+
+    private async Task CloseArchiveBlockedModal()
+    {
+        if (archiveBlockedModal != null)
+            await archiveBlockedModal.HideAsync();
+    }
+
+    private async Task DeleteTreeType(TreeTypeDTO tree)
+    {
+        if (!tree.IsArchived)
+        {
+            await ShowDeleteBlockedModal("Verwijderen kan alleen voor gearchiveerde boomsoorten.");
+            return;
+        }
+
+        pendingDeleteId = tree.Id;
+        if (deleteConfirmModal != null)
+            await deleteConfirmModal.ShowAsync();
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (!pendingDeleteId.HasValue) return;
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            var response = await client.DeleteAsync($"api/v1/TreeType/{pendingDeleteId.Value}");
+            if (response.IsSuccessStatusCode)
+            {
+                await deleteConfirmModal?.HideAsync();
+                pendingDeleteId = null;
+                await LoadTreeTypes();
+                return;
+            }
+
+            var fallbackMessage = "Verwijderen mislukt.";
+            try
+            {
+                var apiResult = await response.Content.ReadFromJsonAsync<ApiResult>();
+                if (!string.IsNullOrWhiteSpace(apiResult?.Message))
+                    fallbackMessage = apiResult.Message;
+            }
+            catch
+            {
+                var raw = await response.Content.ReadAsStringAsync();
+                if (!string.IsNullOrWhiteSpace(raw))
+                    fallbackMessage = raw;
+            }
+
+            await ShowDeleteBlockedModal(fallbackMessage);
+        }
+        catch (Exception ex)
+        {
+            await ShowDeleteBlockedModal($"Verwijderen mislukt: {ex.Message}");
+        }
+        finally
+        {
+            pendingDeleteId = null;
+        }
+    }
+
+    private async Task ShowDeleteBlockedModal(string message)
+    {
+        deleteBlockedMessage = message;
+        if (deleteBlockedModal != null)
+            await deleteBlockedModal.ShowAsync();
+    }
+
+    private async Task CloseDeleteBlockedModal()
+    {
+        if (deleteBlockedModal != null)
+            await deleteBlockedModal.HideAsync();
+    }
+
+    private class ApiResult
+    {
+        public bool Succeeded { get; set; }
+        public string? Message { get; set; }
+    }
+}

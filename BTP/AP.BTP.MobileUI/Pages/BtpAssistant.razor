@@ -1,0 +1,134 @@
+@page "/btp-chat"
+@attribute [Authorize(Roles = "Admin,Medewerker")]
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Nav
+@using System.Text.Json
+
+<div>
+    <div class="chat-card shadow-sm">
+        <div class="chat-header">
+            <a class="btn btn-light back-btn" @onclick="NavToSettings">
+                <i class="bi bi-arrow-left"></i>
+            </a>
+            <div>
+                <div class="chat-title">BTP Assistent</div>
+            </div>
+        </div>
+
+        <div class="chat-highlight">
+            <div>
+                <div class="fw-semibold">Vragen over BTP</div>
+                <div class="text-muted small">Krijg straks hulp over planning, taken en workflows</div>
+            </div>
+            <div class="highlight-icon">
+                <i class="bi bi-stars"></i>
+            </div>
+        </div>
+
+        <div class="chat-window">
+            @foreach (var message in messages)
+            {
+                <div class="@GetBubbleClass(message.IsUser)">
+                    <div class="bubble-meta">
+                        <span class="bubble-sender">@GetSenderLabel(message.IsUser)</span>
+                        <span class="bubble-time">@message.Timestamp.ToString("HH:mm")</span>
+                    </div>
+                    <div class="bubble-text">@message.Text</div>
+                </div>
+            }
+
+            @if (isSending)
+            {
+                <div class="bubble bubble-bot ghost">
+                    <div class="bubble-meta">
+                        <span class="bubble-sender">BTP Assistent</span>
+                        <span class="bubble-time">...</span>
+                    </div>
+                    <div class="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="chat-input-bar">
+            <textarea class="form-control chat-input"
+                      rows="2"
+                      placeholder="Typ je vraag..."
+                      @bind="draft"
+                      @bind:event="oninput"></textarea>
+            <button class="btn btn-success send-btn" @onclick="Send" disabled="@(!CanSend)">
+                <i class="bi bi-send-fill"></i>
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    private record ChatMessage(string Text, bool IsUser, DateTime Timestamp);
+
+    private readonly List<ChatMessage> messages = new();
+    private string draft = string.Empty;
+    private bool isSending;
+
+    private bool CanSend => !isSending && !string.IsNullOrWhiteSpace(draft);
+
+    protected override void OnInitialized()
+    {
+        messages.Add(new ChatMessage("Welkom! Stel je vraag, ik stuur hem door naar de BTP AI backend.", false, DateTime.Now));
+    }
+
+    private string GetBubbleClass(bool isUser) => isUser ? "bubble bubble-user" : "bubble bubble-bot";
+
+    private string GetSenderLabel(bool isUser) => isUser ? "Jij" : "BTP Assistent";
+
+    private void NavToSettings()
+    {
+        Nav.NavigateTo("settings", true);
+    }
+
+    private async Task Send()
+    {
+        if (!CanSend)
+            return;
+
+        var prompt = draft.Trim();
+        draft = string.Empty;
+        messages.Add(new ChatMessage(prompt, true, DateTime.Now));
+        isSending = true;
+
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            var response = await client.PostAsJsonAsync("api/v1/chat", new { prompt });
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorText = await response.Content.ReadAsStringAsync();
+                messages.Add(new ChatMessage($"API-fout: {response.StatusCode} {errorText}", false, DateTime.Now));
+                return;
+            }
+
+            var content = await response.Content.ReadFromJsonAsync<JsonElement>();
+            string? answer = null;
+
+            if (content.ValueKind == JsonValueKind.Object && content.TryGetProperty("response", out var responseElement))
+            {
+                answer = responseElement.GetString();
+            }
+
+            answer ??= "Geen antwoord ontvangen van de chatservice.";
+            messages.Add(new ChatMessage(answer, false, DateTime.Now));
+        }
+        catch (Exception ex)
+        {
+            messages.Add(new ChatMessage($"Er ging iets mis: {ex.Message}", false, DateTime.Now));
+        }
+        finally
+        {
+            isSending = false;
+        }
+    }
+}

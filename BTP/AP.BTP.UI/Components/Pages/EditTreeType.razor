@@ -1,0 +1,486 @@
+@page "/EditTreeType/{id:int}"
+@rendermode InteractiveServer
+@inject IHttpClientFactory ClientFactory
+@inject NavigationManager Navigation
+@using AP.BTP.Application.CQRS.TreeTypes
+@using System.IO
+@using System.Net.Http.Headers
+@using System.Net.Http.Json
+@attribute [Authorize(Roles = "Admin")]
+
+<div class="container-fluid">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <div class="fw-semibold">Boomsoort bewerken</div>
+            <small class="text-muted">Werk naam, beschrijving en instructies bij</small>
+        </div>
+        <button type="button" class="btn btp-primary" @onclick="UpdateTreeType" disabled="@isSaving">
+            @(isSaving ? "Bezig met opslaan..." : "Opslaan")
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5 text-muted">Gegevens laden...</div>
+    }
+    else if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger">@error</div>
+    }
+    else
+    {
+        <div class="card shadow-sm border-0 rounded-4 slidein-animation">
+            <div class="card-body p-4">
+
+                <div class="row g-4">
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Naam</label>
+                        <input class="form-control form-control-lg" style="font-size:0.95rem;" @bind="name" placeholder="bijv. Esdoorn" />
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label fw-semibold">Beschrijving (optioneel)</label>
+                        <textarea class="form-control" rows="4" @bind="description" placeholder="Korte toelichting..."></textarea>
+                    </div>
+
+                    @if (existingImageUrls.Any())
+                    {
+                        <div class="col-12">
+                            <label class="form-label fw-semibold">Bestaande afbeeldingen</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                @for (int i = 0; i < existingImageUrls.Count; i++)
+                                {
+                                    var idx = i;
+                                    var url = existingImageUrls[idx];
+                                    <div class="position-relative" @key="url">
+                                        <img class="rounded-3 shadow-sm"
+                                             src="@url"
+                                             style="width:180px; height:120px; object-fit:cover;" />
+                                        <button type="button"
+                                                class="btn btn-sm btn-dark position-absolute top-0 end-0 m-1"
+                                                style="z-index:2;"
+                                                @onclick="() => RemoveExistingImage(idx)"
+                                                @onclick:stopPropagation="true"
+                                                @onclick:preventDefault="true">
+                                            X
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                            <small class="text-muted d-block mt-2">Afbeeldingen die je laat staan, blijven behouden.</small>
+                        </div>
+                    }
+
+                    <div class="col-md-6">
+                        <label class="form-label fw-semibold">Nieuwe afbeeldingen (optioneel)</label>
+                        <div class="bg-light p-3 rounded-3 border border-dashed text-center">
+                            <InputFile @key="imageInputKey" OnChange="HandleFileSelection" multiple accept="image/png,image/jpeg" />
+                            <small class="text-muted d-block mt-2">
+                                Meerdere toegestaan - JPG of PNG - Max 20MB per foto
+                            </small>
+                        </div>
+                        @if (!isValidFileType)
+                        {
+                            <div class="text-danger small mt-2">Alleen .jpg of .png toegestaan.</div>
+                        }
+                        @if (fileTooBig)
+                        {
+                            <div class="text-danger small mt-1">Bestand is te groot (max 20MB).</div>
+                        }
+                    </div>
+
+                    @if (imagePreviewBase64.Any())
+                    {
+                        <div class="col-12">
+                            <div class="d-flex flex-wrap gap-3">
+                                @for (int i = 0; i < imagePreviewBase64.Count; i++)
+                                {
+                                    var idx = i;
+                                    var url = imagePreviewBase64[idx];
+                                    <div class="position-relative" @key="url">
+                                        <img class="rounded-3 shadow-sm"
+                                             src="@url"
+                                             style="width:180px; height:120px; object-fit:cover;" />
+                                        <button type="button"
+                                                class="btn btn-sm btn-dark position-absolute top-0 end-0 m-1"
+                                                style="z-index:2;"
+                                                @onclick="() => RemoveNewImage(idx)"
+                                                @onclick:stopPropagation="true"
+                                                @onclick:preventDefault="true">
+                                            X
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <hr class="my-4" />
+
+                <div class="table-responsive">
+                    <table class="table align-middle">
+                        <thead>
+                            <tr>
+                                <th style="width: 220px;">Seizoen</th>
+                                <th>PDF</th>
+                                <th style="width: 160px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (var i = 0; i < rows.Count; i++)
+                            {
+                                var r = rows[i];
+                                var idx = i;
+                                <tr>
+                                    <td>
+                                        <span class="fw-semibold">@r.Season</span>
+                                    </td>
+                                    <td>
+                                        <div class="bg-light p-2 rounded-3 border border-dashed">
+                                            <InputFile @key="r.InputKey" OnChange="(e) => OnRowFileSelected(idx, e)" accept="application/pdf" />
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(r.Error))
+                                        {
+                                            <div class="text-danger small mt-1">@r.Error</div>
+                                        }
+                                        @if (r.UploadFile != null)
+                                        {
+                                            <div class="text-success small mt-1">Nieuw: @r.UploadFile.Name</div>
+                                        }
+                                        @if (!string.IsNullOrEmpty(r.ExistingFileUrl))
+                                        {
+                                            <div class="d-flex align-items-center gap-2 mt-2">
+                                                <a class="btn btn-sm btn-outline-primary" href="@r.ExistingFileUrl" target="_blank">Huidige PDF</a>
+                                                <button class="btn btn-sm btn-outline-danger" type="button" @onclick="(() => ClearExistingInstruction(idx))">Verwijder</button>
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-secondary" type="button" @onclick="(() => ClearRow(idx))">Wissen</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <small class="text-muted">Upload een PDF per seizoen dat je wilt gebruiken; leeg laten betekent overslaan.</small>
+
+                @if (!string.IsNullOrEmpty(message))
+                {
+                    <div class="alert @((isSuccess ? "alert-success" : "alert-danger")) mt-4">@message</div>
+                }
+
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int id { get; set; }
+    private string name = string.Empty;
+    private string description = string.Empty;
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private string message = string.Empty;
+    private bool isSuccess = false;
+    private string error = string.Empty;
+
+    private List<string> existingImageUrls = new();
+    private List<UploadFile> imageFiles = new();
+    private List<string> imagePreviewBase64 = new();
+    private Guid imageInputKey = Guid.NewGuid();
+    private bool isValidFileType = true;
+    private bool fileTooBig = false;
+    private const long MaxFileSize = 20 * 1024 * 1024;
+
+    private List<Row> rows = new()
+    {
+        new Row("Lente"),
+        new Row("Zomer"),
+        new Row("Herfst"),
+        new Row("Winter")
+    };
+    private const long MaxPdfSize = 50 * 1024 * 1024;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTreeType();
+    }
+
+    private async Task LoadTreeType()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            var dto = await client.GetFromJsonAsync<TreeTypeDTO>($"api/v1/TreeType/{id}");
+            if (dto == null)
+            {
+                error = "Boomsoort niet gevonden.";
+                return;
+            }
+
+            name = dto.Name ?? string.Empty;
+            description = dto.Description ?? string.Empty;
+            existingImageUrls = dto.TreeImages?
+                .Select(i => i.FileUrl)
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .ToList() ?? new();
+
+            var map = rows.ToDictionary(r => r.Season, r => r);
+            var instrs = dto.Instructions ?? new();
+            foreach (var instr in instrs)
+            {
+                if (string.IsNullOrWhiteSpace(instr.Season)) continue;
+                if (map.TryGetValue(instr.Season.Trim(), out var row))
+                {
+                    row.ExistingFileUrl = instr.FileUrl;
+                    row.ExistingFileName = Path.GetFileName(instr.FileUrl);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task HandleFileSelection(InputFileChangeEventArgs e)
+    {
+        isValidFileType = true;
+        fileTooBig = false;
+
+        var previews = new List<string>();
+        var uploads = new List<UploadFile>();
+
+        foreach (var file in e.GetMultipleFiles())
+        {
+            if (!(file.ContentType == "image/png" || file.ContentType == "image/jpeg"))
+            {
+                isValidFileType = false;
+                continue;
+            }
+            if (file.Size > MaxFileSize)
+            {
+                fileTooBig = true;
+                continue;
+            }
+
+            using var ms = new MemoryStream();
+            await file.OpenReadStream(MaxFileSize).CopyToAsync(ms);
+            var data = ms.ToArray();
+
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            previews.Add($"data:{file.ContentType};base64,{base64}");
+
+            uploads.Add(new UploadFile
+            {
+                Name = file.Name,
+                ContentType = file.ContentType,
+                Size = file.Size,
+                OpenReadStream = () => new MemoryStream(data)
+            });
+        }
+
+        imagePreviewBase64.AddRange(previews);
+        imageFiles.AddRange(uploads);
+
+        await Task.Yield();
+        imageInputKey = Guid.NewGuid();
+    }
+
+    private void RemoveNewImage(int index)
+    {
+        if (index < 0 || index >= imagePreviewBase64.Count)
+            return;
+
+        imagePreviewBase64.RemoveAt(index);
+        if (index < imageFiles.Count)
+            imageFiles.RemoveAt(index);
+
+        imageInputKey = Guid.NewGuid();
+        StateHasChanged();
+    }
+
+    private void RemoveExistingImage(int index)
+    {
+        if (index < 0 || index >= existingImageUrls.Count)
+            return;
+
+        existingImageUrls.RemoveAt(index);
+        StateHasChanged();
+    }
+
+    private async Task UpdateTreeType()
+    {
+        message = string.Empty;
+        isSuccess = false;
+
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            message = "Naam is verplicht";
+            return;
+        }
+
+        if (name.Length > 50)
+        {
+            message = "Naam mag maximaal 50 tekens bevatten";
+            return;
+        }
+
+        // Geen seizoen-keuze meer: alleen rijen met bestaande of nieuwe PDF worden gebruikt
+
+        isSaving = true;
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            using var content = new MultipartFormDataContent();
+
+            content.Add(new StringContent(id.ToString()), "Id");
+            content.Add(new StringContent(name), "Name");
+            if (!string.IsNullOrWhiteSpace(description))
+                content.Add(new StringContent(description), "Description");
+
+            for (int i = 0; i < existingImageUrls.Count; i++)
+                content.Add(new StringContent(existingImageUrls[i]), $"ExistingImages[{i}]");
+
+            foreach (var file in imageFiles)
+            {
+                var stream = file.OpenReadStream();
+                var streamContent = new StreamContent(stream);
+                streamContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
+                content.Add(streamContent, "Images", file.Name);
+            }
+
+            var instructionRows = rows
+                .Where(r => r.UploadFile != null || !string.IsNullOrWhiteSpace(r.ExistingFileUrl))
+                .Take(4)
+                .ToList();
+
+            for (int i = 0; i < instructionRows.Count; i++)
+            {
+                var r = instructionRows[i];
+                content.Add(new StringContent(r.Season), $"Instructions[{i}].Season");
+
+                if (r.UploadFile != null)
+                {
+                    var stream = r.UploadFile.OpenReadStream();
+                    var streamContent = new StreamContent(stream);
+                    streamContent.Headers.ContentType = new MediaTypeHeaderValue(r.UploadFile.ContentType);
+
+                    content.Add(streamContent, $"Instructions[{i}].Pdf", r.UploadFile.Name);
+                }
+                else if (!string.IsNullOrWhiteSpace(r.ExistingFileUrl))
+                {
+                    content.Add(new StringContent(r.ExistingFileUrl), $"Instructions[{i}].ExistingFileUrl");
+                }
+            }
+
+            var response = await client.PutAsync($"api/v1/TreeType/{id}", content);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorResponse = await response.Content.ReadAsStringAsync();
+                message = $"Fout bij opslaan: {errorResponse}";
+                return;
+            }
+
+            isSuccess = true;
+            message = "Boomsoort succesvol bijgewerkt!";
+            Navigation.NavigateTo("/ManageTreeTypes");
+        }
+        catch (Exception ex)
+        {
+            message = $"Fout: {ex.Message}";
+        }
+        finally
+        {
+            isSaving = false;
+        }
+    }
+
+    private async Task OnRowFileSelected(int index, InputFileChangeEventArgs e)
+    {
+        var r = rows[index];
+        r.Error = string.Empty;
+        var file = e.File;
+
+        if (file == null) return;
+
+        if (file.ContentType != "application/pdf")
+        {
+            r.Error = "Alleen PDF is toegestaan.";
+            r.UploadFile = null;
+            return;
+        }
+        if (file.Size > MaxPdfSize)
+        {
+            r.Error = "Bestand is te groot (max 50MB).";
+            r.UploadFile = null;
+            return;
+        }
+
+        using var ms = new MemoryStream();
+        await file.OpenReadStream(MaxPdfSize).CopyToAsync(ms);
+        var data = ms.ToArray();
+
+        r.UploadFile = new UploadFile
+        {
+            Name = file.Name,
+            ContentType = file.ContentType,
+            Size = file.Size,
+            OpenReadStream = () => new MemoryStream(data)
+        };
+
+        r.ExistingFileUrl = string.Empty;
+        r.ExistingFileName = string.Empty;
+    }
+
+    private async void ClearExistingInstruction(int index)
+    {
+        if (index < 0 || index >= rows.Count) return;
+        rows[index].ExistingFileUrl = string.Empty;
+        rows[index].ExistingFileName = string.Empty;
+        await Task.Yield();
+    }
+
+    private async void ClearRow(int index)
+    {
+        var r = rows[index];
+        r.UploadFile = null;
+        r.ExistingFileUrl = string.Empty;
+        r.ExistingFileName = string.Empty;
+        r.Error = string.Empty;
+
+        await Task.Yield();
+        r.InputKey = Guid.NewGuid();
+        rows[index] = r;
+    }
+
+    public class UploadFile
+    {
+        public string Name { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public long Size { get; set; }
+        public Func<Stream> OpenReadStream { get; set; } = null!;
+    }
+
+    public class Row
+    {
+        public Row(string season)
+        {
+            Season = season;
+        }
+        public string Season { get; set; } = string.Empty;
+        public UploadFile? UploadFile { get; set; }
+        public string ExistingFileUrl { get; set; } = string.Empty;
+        public string ExistingFileName { get; set; } = string.Empty;
+        public string Error { get; set; } = string.Empty;
+        public Guid InputKey { get; set; } = Guid.NewGuid();
+    }
+}

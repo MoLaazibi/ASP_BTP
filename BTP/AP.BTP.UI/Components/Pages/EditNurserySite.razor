@@ -1,0 +1,595 @@
+@page "/editNurserySite/{SiteId:int}"
+@rendermode InteractiveServer
+@using AP.BTP.Application.CQRS.NurserySites
+@using AP.BTP.Application.CQRS.TreeTypes
+@using AP.BTP.Application.CQRS.Users
+@using AP.BTP.Application.CQRS
+@using AP.BTP.UI.Components.Layout
+@using System.Net.Http.Json
+@inject NavigationManager Navigation
+@inject IHttpClientFactory ClientFactory
+@attribute [Authorize(Roles = "Admin")]
+
+<div class="page-container">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <div class="fw-semibold">Kweeksite Bewerken</div>
+            <small class="text-muted">Werk sitegegevens en zones bij</small>
+        </div>
+        <button type="button" class="btn btp-primary" @onclick="OnSaveClicked" disabled="@isLoading">
+            @(isLoading ? "Bezig met opslaan..." : "Opslaan")
+        </button>
+    </div>
+
+    <div class="page-grid slidein-animation">
+        <!-- Linkerzijde: formulier -->
+        <section class="siteInformatie">
+            <h2>Site Informatie</h2>
+            <form>
+                <label>Site Naam</label>
+                <input @bind-value="nurserySiteDTO.Name" type="text" />
+
+                <label>Straatnaam</label>
+                <input @bind-value="addressDTO.StreetName" type="text" />
+
+                <label>Huisnummer</label>
+                <input @bind-value="addressDTO.HouseNumber" type="text" />
+
+                <label>Postcode</label>
+                <input @bind-value="addressDTO.PostalCode" type="text" />
+
+                @if (user == null)
+                {
+                    <button type="button" class="btn btp-primary col-sm userButton" id="showModal" @onclick="ShowUserModal">Verantwoordelijke kiezen...</button>
+                }
+                else
+                {
+                    <button type="button" class="btn btp-primary col-sm userButton" id="showModal" @onclick="ShowUserModal">@user.Email</button>
+                }
+
+                <Popup @ref=userModal
+                       Title="Verantwoordelijke selecteren"
+                       IsVerticallyCentered=true
+                       BodyText="Verantwoordelijke lijst"
+                       Size="ModalSize.Regular"
+                       IsScrollable=true>
+                    <BodyTemplate>
+                        <div>
+                            <input class="form-control mb-3"
+                                   placeholder="Zoek verantwoordelijke..."
+                                   @bind="UserSearchTerm"
+                                   @bind:event="oninput" />
+                            <ul class="list-group">
+                                @if (filteredUsers is not null && filteredUsers.Any())
+                                {
+                                    @foreach (var user in filteredUsers)
+                                    {
+                                        <li class="list-group-item list-group-item-action"
+                                            @onclick="() => SetUserFromList(user)">
+                                            @user.Email
+                                        </li>
+                                    }
+                                    <li class="list-group-item list-group-item-action"
+                                        @onclick="() => SetUserFromList(null)">
+                                        -- geen medewerker --
+                                    </li>
+                                }
+                                else
+                                {
+                                    <li class="list-group-item text-muted">Geen users gevonden.</li>
+                                }
+                            </ul>
+                        </div>
+                    </BodyTemplate>
+                </Popup>
+            </form>
+        </section>
+
+        <!-- Rechterzijde: afbeelding -->
+        <section>
+            <h2>Site Afbeelding</h2>
+            <div class="dropArea @dropClass">
+                <InputFile @ondragenter="HandleDragEnter" @ondragleave="HandleDragLeave" OnChange="HandleFileSelection" />
+            </div>
+            @if (!string.IsNullOrEmpty(previewImage))
+            {
+                <img src="@previewImage" class="current-image" />
+            }
+            else if (!string.IsNullOrEmpty(nurserySiteDTO.GroundPlan?.FileUrl))
+            {
+                <img src="@nurserySiteDTO.GroundPlan.FileUrl" class="current-image" />
+            }
+
+            <p style="color: black">Toegelaten bestandtypes: .png en .jpg</p>
+        </section>
+    </div>
+
+    <!-- ===== ZONES ===== -->
+    <section class="zones slidein-animation">
+        <div class="zones-header">
+            <h2>Zones</h2>
+            <button type="button" class="add-zone-btn" @onclick="AddZone">
+                + Voeg Zone Toe
+            </button>
+        </div>
+
+        @if (zones.Count == 0)
+        {
+            <p style="color: #6b7280;">Nog geen zones toegevoegd.</p>
+        }
+        else
+        {
+            @for (int i = 0; i < zones.Count; i++)
+            {
+                var index = i;
+                @if (zones[i].IsDeleted == false)
+                {
+                    <div class="zone-block">
+                        <div class="fw-semibold">Zone @(index + 1)</div>
+                        <button type="button" class="remove-zone-btn" @onclick="() => ConfirmRemoveZone(index)">
+                            <span class="bi bi-trash"></span>
+                        </button>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Grootte (m²)</label>
+                                <input type="number" min="1" @bind="zones[index].Size" />
+                            </div>
+                            <div class="form-group">
+                                <label>Code</label>
+                                <input type="text" maxlength="10" @bind="zones[index].Code" />
+                            </div>
+                            <div class="form-group">
+                                <label>Boomsoort</label>
+                                <select class="form-select" @bind="zones[index].TreeTypeId">
+                                    <option value="0">-- Kies boomsoort --</option>
+                                    @foreach (var t in treeTypes)
+                                    {
+                                        <option value="@t.Id">@t.Name</option>
+                                    }
+                                </select>
+
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+        }
+    </section>
+
+    
+
+    @if (!isValidFileType)
+    {
+        <p>Het bestandstype is niet geldig, type moet .png of .jpg zijn</p>
+    }
+    @if (fileToBig)
+    {
+        <p>Het bestand is te groot, maximumgrootte is 20MB</p>
+    }
+
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <div class="alert @((nurserySiteSuccess && groundPlanSuccess ? "alert-success" : "alert-danger")) mt-3" role="alert">
+            @message
+        </div>
+    }
+
+    @if (validationErrors.Any())
+    {
+        <div class="alert alert-danger mt-3">
+            <ul>
+                @foreach (var error in validationErrors)
+                {
+                    <li>@(error)</li>
+                }
+            </ul>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public int SiteId { get; set; }
+
+    private Popup userModal;
+    private UserDTO? user;
+    private IEnumerable<UserDTO>? users;
+    private IEnumerable<UserDTO>? filteredUsers;
+    private string userSearchTerm = "";
+    private int pageNr = 1;
+    private int pageSize = 6;
+    private NurserySiteDTO nurserySiteDTO = new();
+    private AddressDTO addressDTO = new();
+    private GroundPlanDTO groundPlanDTO = new();
+    private List<ZoneDTO> zones = new();
+    private bool nurserySiteSuccess = false;
+    private bool groundPlanSuccess = false;
+    private string message = "";
+    private List<string> validationErrors = new();
+    private List<TreeTypeDTO> treeTypes = new();
+    private string previewImage;
+    private bool isLoading = false;
+
+    private bool isValidFileType = true;
+    private bool fileToBig = false;
+    private const long MaxFileSize = 20 * 1024 * 1024;
+    private IBrowserFile selectedFile;
+    private string originalFileUrl;
+    private string dropClass = string.Empty;
+    private Popup deleteZoneModal;
+    private int? pendingDeleteZoneIndex;
+    private string deleteZoneError = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTreeTypes();
+        await LoadNurserySite();
+    }
+
+    private async Task LoadTreeTypes()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            var data = await client.GetFromJsonAsync<IEnumerable<TreeTypeDTO>>(
+                $"api/v1/TreeType/by-archive?isArchived=false&pageNr={pageNr}&pageSize={pageSize}");
+            treeTypes = data?.Where(t => !t.IsArchived).ToList() ?? new();
+        }
+        catch
+        {
+            treeTypes = new();
+        }
+    }
+
+    private async Task LoadNurserySite()
+    {
+        var client = ClientFactory.CreateClient("API");
+        var site = await client.GetFromJsonAsync<NurserySiteDTO>($"api/v1/nurserysite/{SiteId}");
+        if (site != null)
+        {
+            nurserySiteDTO = site;
+            nurserySiteDTO.UserId = site.UserId;
+            addressDTO = site.Address;
+            groundPlanDTO = site.GroundPlan;
+            zones = site.Zones?.Select(z => new ZoneDTO
+                {
+                    Id = z.Id,
+                    NurserySiteId = z.NurserySiteId,
+                    Code = z.Code,
+                    Size = z.Size,
+                    TreeTypeId = z.TreeTypeId
+                }).ToList() ?? new List<ZoneDTO>();
+
+            originalFileUrl = groundPlanDTO.FileUrl;
+
+            var siteUser = await client.GetFromJsonAsync<UserDTO>($"api/v1/user/{site.UserId}");
+            user = siteUser;
+        }
+
+    }
+    private async Task LoadUsers()
+    {
+        var client = ClientFactory.CreateClient("API");
+        try
+        {
+            users = await client.GetFromJsonAsync<IEnumerable<UserDTO>>("api/v1/user/withoutnurserysitebyrole?role=Verantwoordelijke");
+            filteredUsers = users;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Fout bij laden gebruikers: {ex.Message}");
+            users = Enumerable.Empty<UserDTO>();
+            filteredUsers = users;
+        }
+    }
+
+    private async Task ShowUserModal()
+    {
+        await LoadUsers();
+        await userModal.ShowAsync();
+    }
+
+    private string UserSearchTerm
+    {
+        get => userSearchTerm;
+        set { userSearchTerm = value; FilterUsers(); }
+    }
+
+    private void FilterUsers()
+    {
+        filteredUsers = string.IsNullOrWhiteSpace(userSearchTerm)
+            ? users
+            : users?.Where(u => u.Email.Contains(userSearchTerm, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+    private async Task SetUserFromList(UserDTO selectedUser)
+    {
+        user = selectedUser;
+        nurserySiteDTO.UserId = selectedUser?.Id ?? 0;
+        await userModal.HideAsync();
+    }
+
+    private bool ValidateForm()
+    {
+        validationErrors.Clear();
+
+        if (string.IsNullOrWhiteSpace(nurserySiteDTO.Name))
+            validationErrors.Add("De naam van de kweeksite is verplicht.");
+        else if (nurserySiteDTO.Name.Length > 100)
+            validationErrors.Add("De naam van de kweeksite mag maximaal 100 karakters lang zijn.");
+
+        if (string.IsNullOrWhiteSpace(addressDTO.StreetName))
+            validationErrors.Add("Straatnaam is verplicht.");
+        else if (addressDTO.StreetName.Length > 100)
+            validationErrors.Add("Straatnaam mag maximaal 100 karakters lang zijn.");
+
+        if (string.IsNullOrWhiteSpace(addressDTO.HouseNumber))
+            validationErrors.Add("Huisnummer is verplicht.");
+        else if (addressDTO.HouseNumber.Length > 10)
+            validationErrors.Add("Huisnummer mag maximaal 10 karakters lang zijn.");
+
+        if (string.IsNullOrWhiteSpace(addressDTO.PostalCode))
+            validationErrors.Add("Postcode is verplicht.");
+        else
+        {
+            if (addressDTO.PostalCode.Length < 4)
+                validationErrors.Add("Postcode moet minimaal 4 karakters lang zijn.");
+            if (addressDTO.PostalCode.Length > 10)
+                validationErrors.Add("Postcode mag maximaal 10 karakters lang zijn.");
+        }
+
+        if (string.IsNullOrWhiteSpace(groundPlanDTO.FileUrl))
+            validationErrors.Add("Er moet een plattegrond worden geüpload.");
+
+        var activeZones = zones?.Where(z => !z.IsDeleted).ToList() ?? new List<ZoneDTO>();
+
+        if (!activeZones.Any())
+        {
+            validationErrors.Add("Er moet minstens één zone worden toegevoegd.");
+        }
+        else
+        {
+            for (int i = 0; i < activeZones.Count; i++)
+            {
+                var zone = activeZones[i];
+
+                if (string.IsNullOrWhiteSpace(zone.Code))
+                    validationErrors.Add($"Zone {i + 1}: Code is verplicht.");
+                else if (zone.Code.Length > 10)
+                    validationErrors.Add($"Zone {i + 1}: Code mag maximaal 10 karakters lang zijn.");
+
+                if (zone.Size <= 0)
+                    validationErrors.Add($"Zone {i + 1}: Grootte moet groter zijn dan 0.");
+
+                if (zone.TreeTypeId == 0)
+                    validationErrors.Add($"Zone {i + 1}: Boomsoort is verplicht.");
+            }
+        }
+        if (user == null)
+        {
+            validationErrors.Add("Een verantwoordelijke selecteren is verplicht");
+        }
+
+        return !validationErrors.Any();
+    }
+
+    private void AddZone() => zones.Add(new ZoneDTO { Size = 0, Code = "", TreeTypeId = 0 });
+    private void RemoveZone(int index) { if (zones.Count > 1) zones[index].IsDeleted = true; }
+
+    private void ConfirmRemoveZone(int index)
+    {
+        pendingDeleteZoneIndex = index;
+        deleteZoneError = string.Empty;
+        _ = deleteZoneModal?.ShowAsync();
+    }
+
+    private void CancelRemoveZone()
+    {
+        pendingDeleteZoneIndex = null;
+        deleteZoneError = string.Empty;
+        _ = deleteZoneModal?.HideAsync();
+    }
+
+    private void ApplyRemoveZone()
+    {
+        if (pendingDeleteZoneIndex.HasValue)
+        {
+            RemoveZone(pendingDeleteZoneIndex.Value);
+        }
+        CancelRemoveZone();
+    }
+
+    private async Task SubmitForm()
+    {
+        await UploadFile();
+
+        if (!ValidateForm())
+        {
+            nurserySiteSuccess = false;
+            return;
+        }
+
+        if (!fileToBig && isValidFileType && originalFileUrl != "")
+        {
+            await SaveNurserySite();
+        }
+    }
+
+    private async Task OnSaveClicked()
+    {
+        if (isLoading) return;
+        isLoading = true;
+        try
+        {
+            await SubmitForm();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task SaveNurserySite()
+    {
+        var client = ClientFactory.CreateClient("API");
+        nurserySiteDTO.Address = addressDTO;
+        nurserySiteDTO.UserId = user?.Id ?? 0;
+        // Stuur alleen actieve zones plus bestaande zones die als IsDeleted gemarkeerd zijn.
+        var payloadZones = zones
+            .Where(z => !z.IsDeleted || (z.IsDeleted && z.Id > 0))
+            .ToList();
+
+        var requestBody = new
+        {
+            nurserySite = nurserySiteDTO,
+            address = addressDTO,
+            groundPlan = groundPlanDTO,
+            userId = user.Id,
+            zones = payloadZones
+        };
+
+        var response = await client.PutAsJsonAsync("api/v1/nurserysite", requestBody);
+        var apiError = await response.Content.ReadFromJsonAsync<ApiError>();
+
+        if (response.IsSuccessStatusCode)
+        {
+            nurserySiteSuccess = true;
+            await Task.Delay(1500);
+            Navigation.NavigateTo("/ManageNurserySite");
+        }
+        else
+        {
+            var errorContent = await response.Content.ReadAsStringAsync();
+            if (apiError != null && !string.IsNullOrWhiteSpace(apiError.Message))
+            {
+
+                var cleaned = ExtractValidationMessage(apiError.Message);
+
+                validationErrors.Clear();
+                validationErrors.Add(cleaned);
+
+                message = "";
+            }
+            else
+            {
+                validationErrors.Clear();
+                validationErrors.Add("Er is een onbekende fout opgetreden.");
+            }
+            nurserySiteSuccess = false;
+        }
+    }
+    private string ExtractValidationMessage(string raw)
+    {
+
+        if (raw.Contains("UserId:"))
+        {
+            // Split up "UserId:"
+            var split = raw.Split("UserId:", StringSplitOptions.RemoveEmptyEntries);
+            if (split.Length > 1)
+            {
+                // Delete "Severity: Error"
+                var cleaned = split[1].Replace("Severity: Error", "")
+                                      .Replace("--", "")
+                                      .Trim();
+                return cleaned;
+            }
+        }
+
+        // Fallback
+        return raw;
+    }
+
+
+    void HandleDragEnter() => dropClass = "dropAreaDrug";
+    void HandleDragLeave() => dropClass = string.Empty;
+
+    private async void HandleFileSelection(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        isValidFileType = true;
+        fileToBig = false;
+
+        if (selectedFile == null)
+            return;
+
+        if (selectedFile.Size > MaxFileSize)
+        {
+            fileToBig = true;
+            return;
+        }
+
+        if (!(selectedFile.ContentType == "image/png" || selectedFile.ContentType == "image/jpeg"))
+        {
+            isValidFileType = false;
+            return;
+        }
+
+        using var stream = selectedFile.OpenReadStream(MaxFileSize);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        var bytes = ms.ToArray();
+        var base64 = Convert.ToBase64String(bytes);
+        var imageType = selectedFile.ContentType;
+
+        previewImage = $"data:{imageType};base64,{base64}";
+
+        StateHasChanged();
+    }
+
+    private async Task UploadFile()
+    {
+        if (selectedFile == null) return;
+        if (!(selectedFile.ContentType == "image/png" || selectedFile.ContentType == "image/jpeg"))
+        {
+            isValidFileType = false;
+            return;
+        }
+        if (selectedFile.Size > MaxFileSize)
+        {
+            fileToBig = true;
+            return;
+        }
+
+        var client = ClientFactory.CreateClient("API");
+        using var content = new MultipartFormDataContent();
+
+        var fileContent = new StreamContent(selectedFile.OpenReadStream(MaxFileSize));
+        fileContent.Headers.ContentType =
+            new System.Net.Http.Headers.MediaTypeHeaderValue(selectedFile.ContentType);
+
+        content.Add(fileContent, "file", selectedFile.Name);
+        content.Add(new StringContent(originalFileUrl ?? ""), "oldUrl");
+
+        var response = await client.PostAsync("api/v1/nurserysite/groundplan/upload", content);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            isValidFileType = false;
+            return;
+        }
+
+        var uploaded = await response.Content.ReadAsStringAsync();
+
+        groundPlanDTO.FileUrl = uploaded;
+        groundPlanDTO.UploadTime = DateTime.Now;
+    }
+
+    
+}
+
+<Popup @ref="deleteZoneModal"
+       Title="Zone verwijderen"
+       IsVerticallyCentered="true"
+       Size="ModalSize.Regular">
+    <BodyTemplate>
+        <p class="mb-2">Weet je zeker dat je deze zone wilt verwijderen?</p>
+        @if (!string.IsNullOrWhiteSpace(deleteZoneError))
+        {
+            <div class="alert alert-danger mt-2" role="alert">@deleteZoneError</div>
+        }
+    </BodyTemplate>
+    <FooterTemplate>
+        <button class="btn btn-secondary me-2" @onclick="CancelRemoveZone">Annuleren</button>
+        <button class="btn btn-danger" @onclick="ApplyRemoveZone">Verwijderen</button>
+    </FooterTemplate>
+</Popup>

@@ -1,0 +1,320 @@
+@page "/login"
+@rendermode InteractiveServer
+@using System.ComponentModel.DataAnnotations
+@using AP.BTP.UI.Attributes
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject IHttpClientFactory HttpClientFactory
+
+<div class="login-page slidein1">
+  <div class="brand">
+    <img src="/Images/btp logo.png" alt="BTP" class="brand-logo" />
+    <div class="brand-title">BTP</div>
+    <div class="brand-sub">Boomkwekerij Taak Planner</div>
+  </div>
+
+    <div class="login-card slidein2">
+    <div class="card-title">Management Platform</div>
+
+    @if (isRegistering)
+    {
+      <EditForm Model="@registerModel" OnValidSubmit="HandleRegistrationAttempt">
+        <DataAnnotationsValidator />
+        <div class="field">
+          <label>Email</label>
+          <div class="input-icon">
+            <i class="bi bi-person"></i>
+            <InputText @bind-Value="registerModel.Email" type="email" placeholder="Voer je email in" />
+          </div>
+          <ValidationMessage For="@(() => registerModel.Email)" />
+        </div>
+
+        <div class="field">
+          <label>Voornaam</label>
+          <div class="input-icon">
+            <i class="bi bi-person"></i>
+            <InputText @bind-Value="registerModel.FirstName" placeholder="Voer je voornaam in" />
+          </div>
+          <ValidationMessage For="@(() => registerModel.FirstName)" />
+        </div>
+
+        <div class="field">
+          <label>Achternaam</label>
+          <div class="input-icon">
+            <i class="bi bi-person"></i>
+            <InputText @bind-Value="registerModel.LastName" placeholder="Voer je achternaam in" />
+          </div>
+          <ValidationMessage For="@(() => registerModel.LastName)" />
+        </div>
+
+        <div class="field">
+          <label>Gebruikersnaam</label>
+          <div class="input-icon">
+            <i class="bi bi-person"></i>
+            <InputText @bind-Value="registerModel.Username" placeholder="Voer je gebruikersnaam in" />
+          </div>
+          <ValidationMessage For="@(() => registerModel.Username)" />
+        </div>
+
+        <div class="field">
+          <label>Wachtwoord</label>
+          <div class="input-icon">
+            <i class="bi bi-lock"></i>
+            <InputText @bind-Value="registerModel.Password" type="password" placeholder="Voer je wachtwoord in" />
+          </div>
+          <ValidationMessage For="@(() => registerModel.Password)" />
+        </div>
+
+        <div class="field">
+          <label>Bevestig Wachtwoord</label>
+          <div class="input-icon">
+            <i class="bi bi-lock"></i>
+            <InputText @bind-Value="registerModel.ConfirmPassword" type="password" placeholder="Bevestig je wachtwoord" />
+          </div>
+          <ValidationMessage For="@(() => registerModel.ConfirmPassword)" />
+        </div>
+
+                <div class="password-requirements">
+                    <small>Wachtwoord vereisten:</small>
+                    <ul>
+                        <li>Minimaal 8 tekens</li>
+                    </ul>
+                    <ul>
+                        <li>minimaal 3 van de volgende 4 typen: kleine letters, hoofdletters, cijfers, speciale tekens.</li>
+                    </ul>
+                </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+          <div class="error-text">@errorMessage</div>
+        }
+
+        @if (!string.IsNullOrEmpty(successMessage))
+        {
+          <div class="success-text">@successMessage</div>
+        }
+
+        <button type="submit" class="btn-login" disabled="@isProcessing">@(isProcessing ? "Registreren..." : "Registreren")</button>
+        <div class="text-center mt-6">
+            <button type="button" class="btn-link" @onclick="SwitchToLogin">Terug naar inloggen</button>
+        </div>
+      </EditForm>
+    }
+    else
+    {
+      <EditForm Model="@loginModel" OnValidSubmit="HandleLoginAttempt">
+        <div class="field">
+          <label>Email</label>
+          <div class="input-icon">
+            <i class="bi bi-person"></i>
+            <InputText @bind-Value="loginModel.Email" type="email" placeholder="Voer je email in" />
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Wachtwoord</label>
+          <div class="input-icon">
+            <i class="bi bi-lock"></i>
+            <InputText @bind-Value="loginModel.Password" type="password" placeholder="Voer je wachtwoord in" />
+          </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+          <div class="error-text">@errorMessage</div>
+        }
+
+        <button type="submit" class="btn-login">Inloggen</button>
+        <div class="text-center mt-6">
+            Geen account?
+            <button type="button" class="btn-link" @onclick="SwitchToRegister">Registreer hier!</button>
+        </div>
+      </EditForm>
+    }
+  </div>
+
+    <div class="login-foot slidein3">Interne tool voor boomkwekerij takenbeheer</div>
+</div>
+
+<style>
+  html, body { height: 100%; overflow: hidden; }
+
+  .btn-link {
+    background: none;
+    border: none;
+    color: #007bff;
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: 0.9rem;
+    margin-top: 1rem;
+    padding: 0;
+  }
+
+  .btn-link:hover {
+    color: #0056b3;
+  }
+
+  .success-text {
+    color: #28a745;
+    font-size: 0.875rem;
+    margin-top: 0.5rem;
+    text-align: center;
+  }
+
+  .password-requirements {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.85rem;
+  }
+
+  .password-requirements small {
+    font-weight: 600;
+    color: #495057;
+  }
+
+  .password-requirements ul {
+    margin: 0.25rem 0 0 1.25rem;
+    padding: 0;
+    color: #6c757d;
+  }
+
+  .password-requirements ul ul {
+    margin-left: 1rem;
+    margin-top: 0.25rem;
+  }
+
+  .password-requirements li {
+    margin: 0.125rem 0;
+  }
+</style>
+
+@code {
+  private string? errorMessage;
+  private string? successMessage;
+  private bool isRegistering = false;
+  private bool isProcessing = false;
+  private LoginModel loginModel = new();
+  private RegisterModel registerModel = new();
+
+  private void SwitchToRegister()
+  {
+    isRegistering = true;
+    errorMessage = null;
+    successMessage = null;
+    registerModel = new();
+  }
+
+  private void SwitchToLogin()
+  {
+    isRegistering = false;
+    errorMessage = null;
+    successMessage = null;
+    loginModel = new();
+  }
+
+  private async Task HandleLoginAttempt()
+  {
+    errorMessage = null;
+    try
+    {
+      var module = await JS.InvokeAsync<IJSObjectReference>("import", "/js/auth.js");
+      var result = await module.InvokeAsync<LoginResult>("login", loginModel.Email, loginModel.Password);
+      if (result?.ok == true)
+      {
+        Navigation.NavigateTo("/", forceLoad: true);
+      }
+      else
+      {
+        errorMessage = string.IsNullOrWhiteSpace(result?.message) ? "Login failed. Please try again." : result!.message;
+      }
+    }
+    catch (Exception ex)
+    {
+      errorMessage = $"An unexpected error occurred: {ex.Message}";
+    }
+  }
+
+  private async Task HandleRegistrationAttempt()
+  {
+    errorMessage = null;
+    successMessage = null;
+    isProcessing = true;
+
+    try
+    {
+      var apiClient = HttpClientFactory.CreateClient("API");
+      var response = await apiClient.PostAsJsonAsync("/api/auth/register", new
+      {
+        Email = registerModel.Email,
+        FirstName = registerModel.FirstName,
+        LastName = registerModel.LastName,
+        Username = registerModel.Username,
+        Password = registerModel.Password,
+        ConfirmPassword = registerModel.ConfirmPassword
+      });
+
+      var content = await response.Content.ReadAsStringAsync();
+      
+      if (response.IsSuccessStatusCode)
+      {
+        successMessage = "Registratie succesvol! Je kunt nu inloggen.";
+        await Task.Delay(2000);
+        SwitchToLogin();
+      }
+      else
+      {
+        var errorObj = System.Text.Json.JsonSerializer.Deserialize<ErrorResponse>(content);
+        errorMessage = errorObj?.Message ?? "Registratie mislukt. Probeer het opnieuw.";
+      }
+    }
+    catch (Exception ex)
+    {
+      errorMessage = $"Er is een fout opgetreden: {ex.Message}";
+    }
+    finally
+    {
+      isProcessing = false;
+    }
+  }
+
+  public class LoginModel
+  {
+    [Required(ErrorMessage = "Email is required")]
+    [EmailAddress(ErrorMessage = "Invalid email")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Password is required")]
+    public string Password { get; set; } = string.Empty;
+  }
+
+  public class RegisterModel
+  {
+    [Required(ErrorMessage = "Email is verplicht")]
+    [EmailAddress(ErrorMessage = "Ongeldig email adres")]
+    public string Email { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Voornaam is verplicht")]
+    public string FirstName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Achternaam is verplicht")]
+    public string LastName { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Gebruikersnaam is verplicht")]
+    [MinLength(3, ErrorMessage = "Gebruikersnaam moet minimaal 3 tekens lang zijn")]
+    public string Username { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Wachtwoord is verplicht")]
+    [PasswordStrength]
+    public string Password { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Bevestig wachtwoord is verplicht")]
+    [Compare(nameof(Password), ErrorMessage = "Wachtwoorden komen niet overeen")]
+    public string ConfirmPassword { get; set; } = string.Empty;
+  }
+
+  public class ErrorResponse { public string? Message { get; set; } }
+  public class LoginResult { public bool ok { get; set; } public string? message { get; set; } }
+}
+

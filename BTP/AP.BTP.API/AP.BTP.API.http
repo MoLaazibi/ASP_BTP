@@ -1,0 +1,6 @@
+@AP.BTP.API_HostAddress = http://localhost:5107
+
+GET {{AP.BTP.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

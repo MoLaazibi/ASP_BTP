@@ -1,0 +1,311 @@
+@page "/"
+@attribute [Authorize(Roles = "Admin,Medewerker")]
+@using System.Globalization
+@using AP.BTP.Application.CQRS.EmployeeTasks
+@using AP.BTP.Application.CQRS.TaskLists
+@using AP.BTP.Application.CQRS.Users
+@using Microsoft.AspNetCore.Authorization
+@inject IHttpClientFactory ClientFactory
+@inject AP.BTP.MobileUI.Services.Auth.MobileAuthenticationStateProvider AuthProvider
+
+
+<div class="dashboard-page">
+    <div class="page-header">
+        <div class="page-title">Dashboard</div>
+        <div class="page-actions">
+            <span class="chip">@todayDateString</span>
+        </div>
+    </div>
+
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+        
+        @if (taskList != null && tasks != null)
+        {
+            var nextTask = NextTask();
+
+            if (nextTask != null)
+            {
+                <div class="next-task-card">
+                    <div class="next-task-header">
+                        <h3>Volgende Taak</h3>
+                        <span class="task-time"><i class="bi bi-clock"></i> @nextTask.PlannedStartTime.Hour:@nextTask.PlannedStartTime.Minute</span>
+                    </div>
+                    <p class="task-title">@nextTask.Description</p>
+                    <p class="task-zone"><i class="bi bi-geo-alt"></i> @taskList.ZoneName</p>
+                </div>
+            }
+
+            <h3 class="section-title">Taken van vandaag</h3>
+            @if (!tasks.Any(t => t.StopTime == null))
+            {
+                <div class="no-tasks">
+                    <p><i class="bi bi-check-circle"></i> Geen taken meer voor vandaag. Goed gewerkt!</p>
+                </div>
+            }
+            else
+            {
+                <div class="task-list">
+                    @if (!string.IsNullOrEmpty(taskStateError))
+                    {
+                        <div class="alert alert-warning" style="margin-bottom: 10px;">
+                            @taskStateError
+                        </div>
+                    }
+                    @foreach (var task in tasks.OrderBy(t => t.Order))
+                    {
+                        if (task.StopTime == null)
+                        {
+                            <div class="task-card @(task.Id == openedTaskId ? "expanded" : "")"
+                                 @onclick="() => ToggleTask(task.Id)">
+                                <div class="task-info">
+                                    <p class="task-title">@task.Description</p>
+                                    <p class="task-zone">
+                                        <i class="bi bi-geo-alt"></i> @taskList.ZoneName
+                                    </p>
+                                </div>
+
+                                <span class="task-status-pill @GetStatusClass(task)">
+                                    @GetStatusLabel(task)
+                                </span>
+                            </div>
+
+                            @if (task.Id == openedTaskId)
+                            {
+                                <div class="task-actions">
+                                    @* Nog niet gestart *@
+                                    @if (task.StartTime == null)
+                                    {
+                                        <button class="btn-status start"
+                                                @onclick:stopPropagation="true"
+                                                @onclick="() => StartTask(task)">
+                                            Bezig
+                                        </button>
+                                    }
+
+                                    @* Reeds gestart maar nog niet klaar *@
+                                    @if (task.StartTime != null && task.StopTime == null)
+                                    {
+                                        <button class="btn-status done"
+                                                @onclick:stopPropagation="true"
+                                                @onclick="() => CompleteTask(task)">
+                                            Klaar
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        }
+                    }
+                </div>
+            }
+            
+
+
+            <h3 class="section-title">Voltooid vandaag</h3>
+            <div class="task-list done">
+                @foreach (var task in tasks)
+                {
+                    if (task.StopTime != null)
+                    {
+                        <div class="task-card done">
+                            <div class="task-info">
+                                <p class="task-title">@task.Description</p>
+                                <p class="task-zone"><i class="bi bi-geo-alt"></i> @taskList.ZoneName</p>
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+        else
+        {
+
+            <div class="no-tasks-wrapper">
+                <div class="no-tasks-card">
+                    <div class="icon-circle">
+                        <i class="bi bi-emoji-smile"></i>
+                    </div>
+
+                    <h2>Geen taken voor vandaag</h2>
+                    <p class="subtitle">Geniet van je vrije dag! Je staat weer klaar voor de volgende ronde.</p>
+                </div>
+            </div>
+   
+        }
+
+        </div>
+    </div>
+</div>
+
+@code {
+    // All code related to initial load of page
+    private UserDTO user;
+    private TaskListDTO taskList;
+    private IEnumerable<EmployeeTaskDTO> tasks;
+    private int? userDbId;
+    private string todayDateString = DateTime.Now
+        .ToString("dddd d MMMM yyyy", CultureInfo.CreateSpecificCulture("nl-BE"));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await GetUser();
+        await LoadTaskList();
+        await LoadTasks();
+    }
+
+    private async Task GetUser()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            var email = await AuthProvider.GetEmailAsync();
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                Console.WriteLine("Geen email gevonden in lokale opslag.");
+                return;
+            }
+            var result = await client.GetFromJsonAsync<UserDTO>($"api/v1/user/byemail?email={Uri.EscapeDataString(email)}");
+            user = result;
+            userDbId = result?.Id;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("Gebruiker kon niet opgehaald worden: " + e.Message);
+        }
+    }
+
+    private async Task LoadTaskList()
+    {
+        var todayDate = DateTime.Today.ToString("yyyy-MM-dd");
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            if (userDbId == null)
+            {
+                Console.WriteLine("Geen gebruiker gevonden tijdens het laden van tasklist.");
+                taskList = null;
+                return;
+            }
+            var result = await client.GetFromJsonAsync<TaskListDTO>($"api/v1/tasklist/userdate?userId={userDbId}&date={todayDate}");
+            taskList = result;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("Tasklist kon niet opgehaald worden: " + e.Message);
+        }
+    }
+
+    private async Task LoadTasks()
+    {
+        try
+        {
+            var client = ClientFactory.CreateClient("API");
+            if (taskList == null)
+            {
+                tasks = Enumerable.Empty<EmployeeTaskDTO>();
+                return;
+            }
+            var result = await client.GetFromJsonAsync<IEnumerable<EmployeeTaskDTO>>($"api/v1/employeeTask/taskList/{taskList.Id}");
+            tasks = result.OrderBy(t => t.Order).ToList();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("Taken konden niet opgehaald worden: " + e.Message);
+        }
+    }
+
+    private EmployeeTaskDTO NextTask()
+    {
+        var nextTask = tasks
+            .Where(t => t.StartTime == null)
+            .OrderBy(t => t.Order)
+            .FirstOrDefault();
+        return nextTask;
+    }
+}
+
+@code {
+    // All code related to handling task status
+    private int? openedTaskId;
+    private string? taskStateError;
+
+    private void ToggleTask(int taskId)
+    {
+        if (openedTaskId == taskId)
+            openedTaskId = null;
+        else
+            openedTaskId = taskId;
+    }
+
+    private string GetStatusLabel(EmployeeTaskDTO task)
+    {
+        if (task.StopTime != null) return "Klaar";
+        if (task.StartTime != null) return "Bezig";
+        return "Te doen";
+    }
+
+    private string GetStatusClass(EmployeeTaskDTO task)
+    {
+        if (task.StopTime != null) return "status-done";
+        if (task.StartTime != null) return "status-in-progress";
+        return "status-todo";
+    }
+
+    private async Task StartTask(EmployeeTaskDTO task)
+    {
+        if (tasks.Any(t => t.StartTime != null && t.StopTime == null))
+        {
+            Console.WriteLine("Er is al een taak bezig!");
+            taskStateError = "Er is al een taak bezig!";
+            return;
+        }
+
+        if (tasks.Any(t => t.Order < task.Order && t.StopTime == null))
+        {
+            Console.WriteLine("Je moet eerst de vorige taken afwerken!");
+            taskStateError = "Je moet eerst de vorige taken afwerken!";
+            return;
+        }
+        var client = ClientFactory.CreateClient("API");
+        var requestBody = new
+        {
+            id = task.Id
+        };
+        var response = await client.PutAsJsonAsync($"api/v1/employeeTask/start", requestBody);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine("Kon starttime niet updaten");
+            return;
+        }
+        taskStateError = "";
+        await LoadTasks();
+
+        openedTaskId = null;
+        StateHasChanged();
+    }
+
+    private async Task CompleteTask(EmployeeTaskDTO task)
+    {
+        var client = ClientFactory.CreateClient("API");
+        var requestBody = new
+        {
+            id = task.Id
+        };
+        var response = await client.PutAsJsonAsync($"api/v1/employeeTask/finish", requestBody);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            Console.WriteLine("Kon stoptime niet updaten");
+            return;
+        }
+
+
+        await LoadTasks();
+
+
+        openedTaskId = null;
+        StateHasChanged();
+    }
+
+}
